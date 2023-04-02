@@ -29,7 +29,7 @@ pip install -e .
 gmshairfoil2d -h                                    
 
 optional arguments:
-  -h, --help                  show this help message and exit
+  -h, --help                  Show this help message and exit
   --list                      Display all airfoil available in the database :
                               https://m-selig.ae.illinois.edu/ads/coord_database.html
   --naca [4DIGITS]            NACA airfoil 4 digit (default 0012)
@@ -40,9 +40,13 @@ optional arguments:
   --box [LENGTHxWIDTH]        Create a box mesh of dimensions [length]x[height] [m]
   --airfoil_mesh_size [SIZE]  Mesh size of the airfoil countour [m] (default 0.01m)
   --ext_mesh_size [SIZE]      Mesh size of the external domain [m] (default 0.2m)
-  --format [FORMAT]           format of the mesh file, e.g: msh, vtk, wrl, stl, mesh, cgns, su2,
+  --format [FORMAT]           Format of the mesh file, e.g: msh, vtk, wrl, stl, mesh, cgns, su2,
                               dat (default su2)
-  --output [PATH]             output path for the mesh file (default : current dir)
+  --blayer [BOOL]             Activate the boundary layer prism layer
+  --blayer_thickness [SIZE]   Thickness of the prism layer
+  --blayer_size [SIZE]        Wall-normal extent of the first wall cell
+  --blayer_ratio [FLOAT]      Expansion ratio of two consecutive cells within the boudnary layer 
+  --output [PATH]             Output path for the mesh file (default : current dir)
   --ui                        Open GMSH user interface to see the mesh
 
 ```
