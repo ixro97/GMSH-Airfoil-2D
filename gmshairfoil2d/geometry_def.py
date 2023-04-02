@@ -573,7 +573,7 @@ class AirfoilSpline:
         self.le_indx = self.points.index(self.le)
         self.te_indx = self.points.index(self.te)
 
-    def gen_skin(self):
+    def gen_skin(self, *args):
         """
         Method to generate the two splines forming the foil, Only call this function when the points
         of the airfoil are in their final position
@@ -596,8 +596,23 @@ class AirfoilSpline:
             # create a spline from the trailing edge to the leading edge
             self.lower_spline = Spline(self.points[self.te_indx : self.le_indx + 1])
 
+        if args[0]:
+            f = gmsh.model.mesh.field.add('BoundaryLayer')
+            gmsh.model.mesh.field.setNumbers(f, 'CurvesList', [self.upper_spline.tag, self.lower_spline.tag])
+            gmsh.model.mesh.field.setNumber(f, 'Size', args[1])
+            gmsh.model.mesh.field.setNumber(f, 'Ratio', args[2])
+            gmsh.model.mesh.field.setNumber(f, 'Quads', 1)
+            gmsh.model.mesh.field.setNumber(f, 'Thickness', args[3])
+            gmsh.option.setNumber('Mesh.BoundaryLayerFanElements', 7)
+            gmsh.model.mesh.field.setNumbers(f, 'FanPointsList', [self.lower_spline.tag_list[-1]])
+            gmsh.model.mesh.field.setAsBoundaryLayer(f)
+
+
         return self.upper_spline, self.lower_spline
         # form the curvedloop
+
+
+
 
     def close_loop(self):
         """

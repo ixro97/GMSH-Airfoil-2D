@@ -5,6 +5,9 @@ import requests
 
 import gmshairfoil2d.__init__
 
+import os
+import shutil
+
 LIB_DIR = Path(gmshairfoil2d.__init__.__file__).parents[1]
 database_dir = Path(LIB_DIR, "database")
 
@@ -50,7 +53,10 @@ def get_airfoil_file(airfoil_name):
     r = requests.get(url)
 
     if r.status_code != 200:
-        raise Exception(f"Could not get airfoil {airfoil_name}")
+        if os.path.isfile(f"{airfoil_name}.dat"):
+            shutil.copyfile(f"./{airfoil_name}.dat", Path(database_dir, f"{airfoil_name}.dat"))
+        else: 
+            raise Exception(f"Could not get airfoil {airfoil_name}")
 
     file_path = Path(database_dir, f"{airfoil_name}.dat")
 

@@ -45,6 +45,40 @@ def main():
     )
 
     parser.add_argument(
+        "--blayer",
+        type=bool,
+        metavar="NAME",
+        nargs="?",
+        help="Set it to true for activating boundary layer prisms",
+    )
+
+
+    parser.add_argument(
+        "--blayer_thickness",
+        type=float,
+        metavar="NAME",
+        nargs="?",
+        help="Thickness of the boundary layer",
+    )
+
+    parser.add_argument(
+        "--blayer_size",
+        type=float,
+        metavar="NAME",
+        nargs="?",
+        help="Wall-normal size of the first boudnary layer cell",
+    )
+
+
+    parser.add_argument(
+        "--blayer_ratio",
+        type=float,
+        metavar="NAME",
+        nargs="?",
+        help="Cell expansion ratio within the boundary layer",
+    )
+
+    parser.add_argument(
         "--aoa",
         type=float,
         nargs="?",
@@ -132,6 +166,24 @@ def main():
         parser.print_help()
         sys.exit()
 
+    blayer = False
+    blayer_ratio = 5e-5
+    blayer_size = 5e-5
+    blayer_thickness = 0.01 
+    if args.blayer:
+        print('Activating boundary layer prisms')
+        blayer = True
+        if args.blayer_size:
+            blayer_size = args.blayer_size
+        if args.blayer_ratio:
+            blayer_ratio = args.blayer_ratio
+        if args.blayer_thickness:
+            blayer_thickness = args.blayer_thickness
+        print('        Size:      '+str(blayer_size))
+        print('        Ratio:     '+str(blayer_ratio))
+        print('        Thickness: '+str(blayer_thickness))
+
+
     # Angle of attack
     aoa = -args.aoa * (math.pi / 180)
 
@@ -148,7 +200,7 @@ def main():
     # Airfoil
     airfoil = AirfoilSpline(cloud_points, args.airfoil_mesh_size)
     airfoil.rotation(aoa, (0.5, 0, 0), (0, 0, 1))
-    airfoil.gen_skin()
+    airfoil.gen_skin(blayer,blayer_size,blayer_ratio,blayer_thickness)
 
     # Generate domain
     surface_domain = PlaneSurface([ext_domain, airfoil])
