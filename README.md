@@ -1,4 +1,3 @@
-[![Pytest](https://github.com/davecats/GMSH-Airfoil-2D/actions/workflows/pytest.yml/badge.svg?branch=main)](https://github.com/cfsengineering/GMSH-Airfoil-2D/actions/workflows/pytest.yml)
 [![License](https://img.shields.io/badge/license-Apache%202-blue.svg)](https://github.com/davecats/GMSH-Airfoil-2D/blob/main/LICENSE)
 
 # GMSH-Airfoil-2D
