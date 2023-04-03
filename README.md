@@ -1,5 +1,5 @@
 [![License](https://img.shields.io/badge/license-Apache%202-blue.svg)](https://github.com/davecats/GMSH-Airfoil-2D/blob/main/LICENSE)
-[![Pytest](https://github.com/davecats/GMSH-Airfoil-2D/actions/workflows/pytest.yml/badge.svg?branch=main)](https://github.com/cfsengineering/GMSH-Airfoil-2D/actions/workflows/pytest.yml)
+[![Pytest](https://github.com/davecats/GMSH-Airfoil-2D/actions/workflows/pytest.yml/badge.svg?branch=main)](https://github.com/davecats/GMSH-Airfoil-2D/actions/workflows/pytest.yml)
 # GMSH-Airfoil-2D
 
 Python tool to genreate 2D unstructured mesh around an airfoil with [GMSH](https://gmsh.info/) in one command line.
