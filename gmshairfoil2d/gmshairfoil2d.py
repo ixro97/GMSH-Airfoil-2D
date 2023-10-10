@@ -139,6 +139,19 @@ def main():
     parser.add_argument(
         "--ui", action="store_true", help="Open GMSH user interface to see the mesh"
     )
+    
+    parser.add_argument(
+        "--quad", action="store_true", help="Create quadrangular mesh based on Frontal-Delaunay for Quads (experimental) and the Simple Full-Quad recombination algorithm"
+    )
+    
+    parser.add_argument(
+        "--extrusion",
+        type=float,
+        metavar="WIDTH",
+        nargs="?",
+        default=0.1,
+        help="Mesh size of the airfoil countour [m]  (default 0.01m)",
+    )
 
     args = parser.parse_args()
 
@@ -210,9 +223,24 @@ def main():
     ext_domain.define_bc()
     airfoil.define_bc()
     surface_domain.define_bc()
-
-    # Generate mesh
+    
+    if args.quad:
+        gmsh.option.setNumber("Mesh.Algorithm", 8)
+        gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 2) 
+        gmsh.option.setNumber("Mesh.RecombineAll", 1)
+    
     gmsh.model.mesh.generate(2)
+    
+    # 3D extrusion
+    if args.extrusion:
+        width = args.extrusion
+        ov = gmsh.model.occ.extrude([(2,surface_domain.tag)], 0, 0, width, [1],recombine = True)
+        gmsh.model.occ.synchronize()
+    
+        fluid_tag = gmsh.model.geo.addPhysicalGroup(ov[1][0], [ov[1][1]],-1)
+        gmsh.model.setPhysicalName(ov[1][0], fluid_tag,"fluid")
+
+        gmsh.model.mesh.generate(3)
 
     # Open user interface of GMSH
     if args.ui:
