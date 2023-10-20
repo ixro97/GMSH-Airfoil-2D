@@ -27,7 +27,7 @@ class Point:
             at that point
     """
 
-    def __init__(self, x, y, z, mesh_size):
+    def __init__(self, x, y, z, mesh_size=None):
 
         self.x = x
         self.y = y
@@ -37,7 +37,10 @@ class Point:
         self.dim = 0
 
         # create the gmsh object and store the tag of the geometric object
-        self.tag = gmsh.model.occ.addPoint(self.x, self.y, self.z, self.mesh_size)
+        if mesh_size != None:
+            self.tag = gmsh.model.occ.addPoint(self.x, self.y, self.z, self.mesh_size)
+        else:
+            self.tag = gmsh.model.occ.addPoint(self.x, self.y, self.z)
 
     def rotation(self, angle, origin, axis):
         """
@@ -554,10 +557,10 @@ class AirfoilSpline:
         boundary condition
     """
 
-    def __init__(self, point_cloud, mesh_size, name="airfoil"):
-
-        self.name = name
+    def __init__(self, point_cloud, mesh_size, bc_data = None, name="airfoil"):
+        
         self.dim = 1
+        self.mesh_size = mesh_size
 
         # Generate Points object from the point_cloud
         self.points = [
@@ -572,6 +575,29 @@ class AirfoilSpline:
         # in the list of point
         self.le_indx = self.points.index(self.le)
         self.te_indx = self.points.index(self.te)
+        
+        # generate separat point sets for upper and lower side
+        self.upper_splines = dict(pointSet = [self.gen_upper_pointSet()], name = [name], spline =[])
+        self.lower_splines = dict(pointSet = [self.gen_lower_pointSet()], name = [name], spline =[])
+        
+        # split point sets
+        if bc_data:            
+            for i in range(len(bc_data["start"])):
+                splittingPoints = self.gen_bcSplittingPoints(bc_data['start'][i], bc_data['end'][i], bc_data['side'][i])
+                if bc_data["side"][i] == "SS":
+                    self.upper_splines = self.split_pointSet(splittingPoints, self.upper_splines, bc_data["name"][i])
+                else:
+                    self.lower_splines = self.split_pointSet(splittingPoints, self.lower_splines, bc_data["name"][i])
+        
+        # set class variable self.all_splines containing all airfoil splines
+        self.update_all_splines()
+
+    def update_all_splines(self):
+        self.all_splines = {key: [] for key in self.upper_splines.keys()}
+        for key, value in self.upper_splines.items():
+            self.all_splines[key].extend(value)
+        for key, value in self.lower_splines.items():
+            self.all_splines[key].extend(value)
 
     def gen_skin(self, *args):
         """
@@ -580,40 +606,105 @@ class AirfoilSpline:
         -------
         """
         # Create the Splines depending on the le and te location in point_cloud
-        if self.le_indx < self.te_indx:
-            # create a spline from the leading edge to the trailing edge
-            self.upper_spline = Spline(self.points[self.le_indx : self.te_indx + 1])
-            # create a spline from the trailing edge to the leading edge
-            self.lower_spline = Spline(
-                self.points[self.te_indx :] + self.points[: (self.le_indx) + 1]
-            )
-
-        else:
-            # create a spline from the leading edge to the trailing edge
-            self.upper_spline = Spline(
-                self.points[self.le_indx :] + self.points[: (self.te_indx + 1)]
-            )
-            # create a spline from the trailing edge to the leading edge
-            self.lower_spline = Spline(self.points[self.te_indx : self.le_indx + 1])
-
-        if args[0]:
+        for i in range(len(self.upper_splines["pointSet"])):
+            self.upper_splines["spline"].insert(i,Spline(self.upper_splines["pointSet"][i]))
+        for i in range(len(self.lower_splines["pointSet"])):
+            self.lower_splines["spline"].insert(i,Spline(self.lower_splines["pointSet"][i]))
+        
+        self.update_all_splines()
+        
+        for i in range(len(self.all_splines[next(iter(self.all_splines.keys()))])):
+                    print(f"{self.all_splines['name'][i]}:")
+                    for point in self.all_splines['pointSet'][i]:
+                        print(f"x = {point.x}, y = {point.y}, z = {point.z}")
+        
+        if args[0]:            
             f = gmsh.model.mesh.field.add('BoundaryLayer')
-            gmsh.model.mesh.field.setNumbers(f, 'CurvesList', [self.upper_spline.tag, self.lower_spline.tag])
+            gmsh.model.mesh.field.setNumbers(f, 'CurvesList', [spline.tag for spline in self.all_splines['spline']])
             gmsh.model.mesh.field.setNumber(f, 'Size', args[1])
             gmsh.model.mesh.field.setNumber(f, 'Ratio', args[2])
             gmsh.model.mesh.field.setNumber(f, 'Quads', 1)
             gmsh.model.mesh.field.setNumber(f, 'Thickness', args[3])
             gmsh.option.setNumber('Mesh.BoundaryLayerFanElements', 7)
-            gmsh.model.mesh.field.setNumbers(f, 'FanPointsList', [self.lower_spline.tag_list[-1]])
+            gmsh.model.mesh.field.setNumbers(f, 'FanPointsList', [self.te.tag])
             gmsh.model.mesh.field.setAsBoundaryLayer(f)
 
-
-        return self.upper_spline, self.lower_spline
+        return self.upper_splines, self.lower_splines
         # form the curvedloop
 
+    def gen_upper_pointSet(self):
+        if self.le_indx < self.te_indx:
+            upper_pointSet = self.points[self.le_indx : self.te_indx + 1]
+        else:
+            upper_pointSet = self.points[self.le_indx :] + self.points[: (self.te_indx + 1)]
+        
+        upper_pointSet = sorted(upper_pointSet, key=lambda obj: obj.x)
+        return upper_pointSet
 
+    def gen_lower_pointSet(self):
+        if self.le_indx < self.te_indx:
+            lower_pointSet = self.points[self.te_indx :] + self.points[: (self.le_indx) + 1]
+        else:
+            lower_pointSet = self.points[self.te_indx : self.le_indx + 1]
+        
+        lower_pointSet = sorted(lower_pointSet, key=lambda obj: obj.x)
+        return lower_pointSet
+    
+    def gen_bcSplittingPoints(self, startPoint_xCoord, endPoint_xCoord, airfoilSide):
+        # Get coordinates for splitting points:
+        if airfoilSide == "SS":
+            pointSet = self.gen_upper_pointSet()
+        elif airfoilSide == "PS":
+            pointSet = self.gen_lower_pointSet()
+        
+        startPoint_yCoord = None
+        endPoint_yCoord = None
+        
+        for point in pointSet:
+            if pointSet.index(point) < len(pointSet) - 1:
+                nextPoint = pointSet[pointSet.index(point) + 1]                
+                if point.x <= startPoint_xCoord and startPoint_xCoord < nextPoint.x:
+                    startPoint_yCoord = point.y + (nextPoint.y - point.y)/(nextPoint.x - point.x)*(startPoint_xCoord - point.x)
+                    print(f"{point.x} <= x = {startPoint_xCoord} < {nextPoint.x}  ->  y = {startPoint_yCoord}")
+                elif point.x <= endPoint_xCoord and endPoint_xCoord < nextPoint.x:
+                    endPoint_yCoord = point.y + (nextPoint.y - point.y)/(nextPoint.x - point.x)*(endPoint_xCoord - point.x)
+                    print(f"{point.x} <= x = {endPoint_xCoord} < {nextPoint.x}  ->  y = {endPoint_yCoord}")
+               
+        startPoint = Point(startPoint_xCoord, startPoint_yCoord, 0, self.mesh_size)
+        endPoint = Point(endPoint_xCoord, endPoint_yCoord, 0, self.mesh_size)
+            
+        return startPoint, endPoint
+    
+    def split_pointSet(self, splittingPoints, pointSets, bc_name):
+        pointSet_to_split = None
+        index_pointSet_to_split = None
+        
+        for pointSet in pointSets["pointSet"]:
+            if pointSet[0].x < splittingPoints[0].x and splittingPoints[1].x < pointSet[-1].x:
+                pointSet_to_split = pointSet
+                index_pointSet_to_split = pointSets["pointSet"].index(pointSet)
+                break
+        
+        if pointSet_to_split == None or index_pointSet_to_split == None:
+            raise ValueError(f"Error: boundary conditions are overlapping  ->  {bc_name} can not be created!")
+            return pointSets
+                
+        pointSets["pointSet"][index_pointSet_to_split:index_pointSet_to_split + 1] = ([[splittingPoints[0]],list(splittingPoints),[splittingPoints[1]]])
+        pointSets["name"][index_pointSet_to_split:index_pointSet_to_split + 1] = (["airfoil", bc_name, "airfoil"])
 
-
+        for point in pointSet:
+            if point.x < splittingPoints[0].x:
+                pointSets["pointSet"][index_pointSet_to_split].append(point)
+            elif splittingPoints[0].x < point.x and point.x < splittingPoints[1].x:
+                pointSets["pointSet"][index_pointSet_to_split + 1].append(point)
+            else:
+                pointSets["pointSet"][index_pointSet_to_split + 2].append(point)
+        
+        for i in range(len(pointSets["pointSet"])):
+            pointSets["pointSet"][i] = sorted(pointSets["pointSet"][i], key=lambda obj: obj.x)
+        
+        return pointSets
+    
     def close_loop(self):
         """
         Method to form a close loop with the current geometrical object
@@ -622,19 +713,27 @@ class AirfoilSpline:
         -------
         _ : int
             return the tag of the CurveLoop object
-        """
-        return CurveLoop([self.upper_spline, self.lower_spline]).tag
+        """                
+        return CurveLoop(self.all_splines["spline"]).tag
 
     def define_bc(self):
         """
         Method that define the marker of the airfoil for the boundary condition
         -------
         """
-
-        self.bc = gmsh.model.addPhysicalGroup(
-            self.dim, [self.upper_spline.tag, self.lower_spline.tag]
-        )
-        gmsh.model.setPhysicalName(self.dim, self.bc, self.name)
+        # Find all different boundaries
+        
+        self.bcs = {"name": [], "spline tags": [], "physical group": []}
+        for i in range(len(self.all_splines[next(iter(self.all_splines.keys()))])):
+            if self.all_splines["name"][i] in self.bcs["name"]:
+                self.bcs["spline tags"][self.bcs["name"].index(self.all_splines["name"][i])].append(self.all_splines["spline"][i].tag)
+            else:
+                self.bcs["name"].append(self.all_splines["name"][i])
+                self.bcs["spline tags"].append([self.all_splines["spline"][i].tag])
+                
+        for i in range(len(self.bcs[next(iter(self.bcs.keys()))])):
+            self.bcs["physical group"].append(gmsh.model.addPhysicalGroup(self.dim, self.bcs["spline tags"][i]))
+            gmsh.model.setPhysicalName(self.dim, self.bcs["physical group"][i], self.bcs["name"][i])
 
     def rotation(self, angle, origin, axis):
         """
@@ -649,8 +748,17 @@ class AirfoilSpline:
             tuple of point (x,y,z) which is the origin of the rotation
         axis : tuple
             tuple of point (x,y,z) which represent the axis of rotation
-        """
-        [point.rotation(angle, origin, axis) for point in self.points]
+        """       
+        rot_pointSet = []
+        for pointSet in self.all_splines["pointSet"]:
+            for point in pointSet:
+                if point not in rot_pointSet:
+                    rot_pointSet.append(point)
+                    
+        for point in rot_pointSet:
+            print(f"x = {point.x}, y = {point.y}, z = {point.z}")
+                    
+        [point.rotation(angle, origin, axis) for point in rot_pointSet]
 
     def translation(self, vector):
         """
@@ -662,7 +770,16 @@ class AirfoilSpline:
         direction : tuple
             tuple of point (x,y,z) which represent the direction of the translation
         """
-        [point.translation(vector) for point in self.points]
+        trans_pointSet = []
+        for pointSet in self.all_splines["pointSet"]:
+            for point in pointSet:
+                if point not in trans_pointSet:
+                    trans_pointSet.append(point)
+                    
+        for point in trans_pointSet:
+            print(f"x = {point.x}, y = {point.y}, z = {point.z}")
+                    
+        [point.translation(vector) for point in trans_pointSet]
 
 
 class PlaneSurface:
@@ -700,3 +817,58 @@ class PlaneSurface:
         """
         self.ps = gmsh.model.addPhysicalGroup(self.dim, [self.tag])
         gmsh.model.setPhysicalName(self.dim, self.ps, "fluid")
+
+
+class MeshExtrusion:
+    """
+    A class to represent the PlaneSurface geometrical object of gmsh
+
+
+    ...
+
+    Attributes
+    ----------
+    geom_objects : list(geom_object)
+        List of geometrical object able to form closedloop,
+        First the object will be closed in ClosedLoop
+        the first curve loop defines the exterior contour; additional curve loop
+        define holes in the surface domaine
+
+    """
+
+    def __init__(self, plane_surface, extrusion_value):
+        
+        self.dim = 3
+        self.extrusion_value = extrusion_value
+        self.plane_surface = plane_surface
+
+        ov = gmsh.model.occ.extrude([(plane_surface.dim,plane_surface.tag)], 0, 0, extrusion_value, [1],recombine = True)
+        gmsh.model.occ.synchronize()
+        
+        self.bc_volume = dict(name = "fluid", tags = [ov[1][1]], physical_group = None)
+        self.bc_surface = dict(name = ["sides"], tags = [[plane_surface.tag, ov[0][1]]], physical_group = [])
+        
+        for bc in gmsh.model.getPhysicalGroups(1):
+            bc_name = gmsh.model.getPhysicalName(bc[0],bc[1])
+            bc_entities = gmsh.model.getEntitiesForPhysicalGroup(bc[0],bc[1])
+            
+            if bc_name not in self.bc_surface['name']:
+                self.bc_surface['name'].append(bc_name)
+                self.bc_surface['tags'].append([])
+                for extruded_surface_tag in ov[2:len(ov)]:
+                    if gmsh.model.getBoundary([extruded_surface_tag], combined=True, oriented=False, recursive=False)[0][1] in bc_entities:
+                        self.bc_surface['tags'][self.bc_surface['name'].index(bc_name)].append(extruded_surface_tag[1])
+
+    def define_bc(self):
+        """
+        Method that define the domain marker of the surface
+        -------
+        """
+        gmsh.model.removePhysicalGroups([(self.plane_surface.dim,self.plane_surface.ps)])
+        
+        self.bc_volume['physical_group'] = gmsh.model.addPhysicalGroup(self.dim, self.bc_volume['tags'])        
+        gmsh.model.setPhysicalName(self.dim, self.bc_volume['physical_group'], self.bc_volume['name'])
+        
+        for i in range(len(self.bc_surface['name'])):
+            self.bc_surface['physical_group'].append(gmsh.model.addPhysicalGroup(self.plane_surface.dim, self.bc_surface['tags'][i]))
+            gmsh.model.setPhysicalName(self.plane_surface.dim, self.bc_surface['physical_group'][i], self.bc_surface['name'][i])

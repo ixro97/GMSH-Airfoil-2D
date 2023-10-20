@@ -4,13 +4,14 @@
 import argparse
 import math
 import sys
+import re
 from pathlib import Path
 
 import gmsh
 from gmshairfoil2d.airfoil_func import (NACA_4_digit_geom, get_airfoil_points,
                                         get_all_available_airfoil_names)
 from gmshairfoil2d.geometry_def import (AirfoilSpline, Circle, PlaneSurface,
-                                        Rectangle)
+                                        Rectangle, MeshExtrusion)
 
 def main():
     # Instantiate the parser
@@ -149,8 +150,15 @@ def main():
         type=float,
         metavar="WIDTH",
         nargs="?",
-        default=0.1,
-        help="Mesh size of the airfoil countour [m]  (default 0.01m)",
+        help="Extrusion of the 2D mesh in z by [width] [m]  (default 0.1m)",
+    )
+    
+    parser.add_argument(
+        "--bc",
+        type=str,
+        metavar="NAME:START..END-SIDE",
+        nargs="*",
+        help="Create a boundary condition named [name] on the airfoil ranging from the x coord [start] to [end] [%%c] (start < end) on the suction side (side = SS) or the pressure side (side = PS).",
     )
 
     args = parser.parse_args()
@@ -210,11 +218,33 @@ def main():
     else:
         ext_domain = Circle(0.5, 0, 0, radius=args.farfield, mesh_size=args.ext_mesh_size)
 
+    # Boundary conditions
+    bc_definitions = None
+    if args.bc:
+        delimiters = [':','..', '-']
+        bc_definitions = dict(start = [], end =[], side = [], name = [])
+        for bc in args.bc:
+            if not re.match(r".*:\d*\.\d*\.\.\d*\.\d*-(SS|PS)$", bc):
+                raise SyntaxError("Boundary conditions were provided with wrong syntax. For more information use --help")
+            name, start, end, side = re.split('|'.join(map(re.escape, delimiters)), bc)
+            
+            # Assign boundary condition values to dictionary
+            bc_definitions["name"].append(name)
+            bc_definitions["side"].append(side)
+            if float(start) < 1 and float(end) < 1 and float(start) < float(end):
+                bc_definitions["start"].append(float(start))
+                bc_definitions["end"].append(float(end))
+            else: 
+                raise ValueError("Given values are outside of the allowed specification. Make sure they are between 0 and 1 and start < end.")
+                
+        for i in range(len(bc_definitions[next(iter(bc_definitions.keys()))])):
+            print(f"{bc_definitions['name'][i]}: {bc_definitions['start'][i]}..{bc_definitions['end'][i]} - {bc_definitions['side'][i]}")
+    
     # Airfoil
-    airfoil = AirfoilSpline(cloud_points, args.airfoil_mesh_size)
+    airfoil = AirfoilSpline(cloud_points, args.airfoil_mesh_size, bc_definitions)
     airfoil.rotation(aoa, (0.5, 0, 0), (0, 0, 1))
     airfoil.gen_skin(blayer,blayer_size,blayer_ratio,blayer_thickness)
-
+    
     # Generate domain
     surface_domain = PlaneSurface([ext_domain, airfoil])
 
@@ -229,18 +259,15 @@ def main():
         gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 2) 
         gmsh.option.setNumber("Mesh.RecombineAll", 1)
     
-    gmsh.model.mesh.generate(2)
-    
-    # 3D extrusion
+    # 3D extrusion and meshing
     if args.extrusion:
-        width = args.extrusion
-        ov = gmsh.model.occ.extrude([(2,surface_domain.tag)], 0, 0, width, [1],recombine = True)
-        gmsh.model.occ.synchronize()
-    
-        fluid_tag = gmsh.model.geo.addPhysicalGroup(ov[1][0], [ov[1][1]],-1)
-        gmsh.model.setPhysicalName(ov[1][0], fluid_tag,"fluid")
-
+        extrusion_value = args.extrusion
+        extrusion = MeshExtrusion(surface_domain, extrusion_value)
+        extrusion.define_bc()
+        
         gmsh.model.mesh.generate(3)
+    else:
+        gmsh.model.mesh.generate(2)
 
     # Open user interface of GMSH
     if args.ui:
