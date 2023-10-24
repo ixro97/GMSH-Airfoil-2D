@@ -846,7 +846,7 @@ class MeshExtrusion:
         gmsh.model.occ.synchronize()
         
         self.bc_volume = dict(name = "fluid", tags = [ov[1][1]], physical_group = None)
-        self.bc_surface = dict(name = ["sides"], tags = [[plane_surface.tag, ov[0][1]]], physical_group = [])
+        self.bc_surface = dict(name = ["side_z-","side_z+"], tags = [[plane_surface.tag],[ov[0][1]]], physical_group = [])
         
         for bc in gmsh.model.getPhysicalGroups(1):
             bc_name = gmsh.model.getPhysicalName(bc[0],bc[1])
