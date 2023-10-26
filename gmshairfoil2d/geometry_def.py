@@ -614,9 +614,9 @@ class AirfoilSpline:
         self.update_all_splines()
         
         for i in range(len(self.all_splines[next(iter(self.all_splines.keys()))])):
-                    print(f"{self.all_splines['name'][i]}:")
-                    for point in self.all_splines['pointSet'][i]:
-                        print(f"x = {point.x}, y = {point.y}, z = {point.z}")
+            print(f"{self.all_splines['name'][i]}:")
+            for point in self.all_splines['pointSet'][i]:
+                print(f"x = {point.x}, y = {point.y}, z = {point.z}")
         
         if args[0]:            
             f = gmsh.model.mesh.field.add('BoundaryLayer')
@@ -686,8 +686,7 @@ class AirfoilSpline:
                 break
         
         if pointSet_to_split == None or index_pointSet_to_split == None:
-            raise ValueError(f"Error: boundary conditions are overlapping  ->  {bc_name} can not be created!")
-            return pointSets
+            raise ValueError(f"Boundary conditions are overlapping  ->  {bc_name} can not be created!")
                 
         pointSets["pointSet"][index_pointSet_to_split:index_pointSet_to_split + 1] = ([[splittingPoints[0]],list(splittingPoints),[splittingPoints[1]]])
         pointSets["name"][index_pointSet_to_split:index_pointSet_to_split + 1] = (["airfoil", bc_name, "airfoil"])
@@ -697,7 +696,7 @@ class AirfoilSpline:
                 pointSets["pointSet"][index_pointSet_to_split].append(point)
             elif splittingPoints[0].x < point.x and point.x < splittingPoints[1].x:
                 pointSets["pointSet"][index_pointSet_to_split + 1].append(point)
-            else:
+            elif splittingPoints[1].x < point.x:
                 pointSets["pointSet"][index_pointSet_to_split + 2].append(point)
         
         for i in range(len(pointSets["pointSet"])):
@@ -754,9 +753,6 @@ class AirfoilSpline:
             for point in pointSet:
                 if point not in rot_pointSet:
                     rot_pointSet.append(point)
-                    
-        for point in rot_pointSet:
-            print(f"x = {point.x}, y = {point.y}, z = {point.z}")
                     
         [point.rotation(angle, origin, axis) for point in rot_pointSet]
 
