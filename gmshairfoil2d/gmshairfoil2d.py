@@ -11,7 +11,7 @@ import gmsh
 from gmshairfoil2d.airfoil_func import (NACA_4_digit_geom, get_airfoil_points,
                                         get_all_available_airfoil_names)
 from gmshairfoil2d.geometry_def import (AirfoilSpline, Circle, PlaneSurface,
-                                        Rectangle, MeshExtrusion)
+                                        Rectangle, MeshExtrusion, AirfoilOffset, CurveLoop)
 
 def main():
     # Instantiate the parser
@@ -150,7 +150,7 @@ def main():
         type=float,
         metavar="WIDTH",
         nargs="?",
-        help="Extrusion of the 2D mesh in z by [width] [m]  (default 0.1m)",
+        help="Extrusion of the 2D mesh in z by [width] [m]",
     )
     
     parser.add_argument(
@@ -211,13 +211,6 @@ def main():
     # Generate Geometry
     gmsh.initialize()
 
-    # External domain
-    if args.box:
-        length, width = [float(value) for value in args.box.split("x")]
-        ext_domain = Rectangle(0.5, 0, 0, length, width, mesh_size=args.ext_mesh_size)
-    else:
-        ext_domain = Circle(0.5, 0, 0, radius=args.farfield, mesh_size=args.ext_mesh_size)
-
     # Boundary conditions
     bc_definitions = None
     if args.bc:
@@ -244,19 +237,41 @@ def main():
     airfoil = AirfoilSpline(cloud_points, args.airfoil_mesh_size, bc_definitions)
     airfoil.rotation(aoa, (0.5, 0, 0), (0, 0, 1))
     airfoil.gen_skin(blayer,blayer_size,blayer_ratio,blayer_thickness)
-    
+
+    # External domain
+    if args.box:
+        length, width = [float(value) for value in args.box.split("x")]
+        ext_domain = Rectangle(0.5, 0, 0, length, width, mesh_size=args.ext_mesh_size)
+    else:
+        ext_domain = Circle(0.5, 0, 0, radius=args.farfield, mesh_size=args.ext_mesh_size)
+
+    offsetTrigger = True
+    surface_domain = None
     # Generate domain
-    surface_domain = PlaneSurface([ext_domain, airfoil])
+    if offsetTrigger:
+        offset = AirfoilOffset(airfoil, 0.5, args.airfoil_mesh_size*2, 3)
+        # offset.rotation(aoa, (0.5, 0, 0), (0, 0, 1))
+        offset.gen_skin()
+        offset.gen_connection_lines()
+        offset.gen_inner_planeSurfaces()
+        gmsh.model.occ.synchronize()
+        offset.set_transfinite()
+
+        surface_domain = PlaneSurface([ext_domain, offset])
+    else:
+        surface_domain = PlaneSurface([ext_domain, airfoil])
 
     # Synchronize and generate BC marker
     gmsh.model.occ.synchronize()
     ext_domain.define_bc()
     airfoil.define_bc()
     surface_domain.define_bc()
-    
+
+    gmsh.fltk.run()
+
     if args.quad:
         gmsh.option.setNumber("Mesh.Algorithm", 8)
-        gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 2) 
+        gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1) 
         gmsh.option.setNumber("Mesh.RecombineAll", 1)
     
     # 3D extrusion and meshing

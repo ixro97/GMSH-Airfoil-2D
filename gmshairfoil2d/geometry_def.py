@@ -56,6 +56,24 @@ class Point:
         axis : tuple
             tuple of point (x,y,z) which represent the axis of rotation
         """
+
+        # Define needed vectors
+        posVector = np.array([self.x, self.y, self.z])
+        axisVector = np.array([axis[0], axis[1], axis[2]])
+        axisVector_normalized = axisVector/np.linalg.norm(axisVector)
+        originVector = np.array([origin[0], origin[1], origin[2]])
+
+        # Perform the rotation using the rotation matrix (Rodrigues' rotation formula)
+        posVector_rotated = originVector + ((posVector - originVector)*math.cos(angle)                                     \
+                            + np.cross(axisVector_normalized, posVector - originVector)*math.sin(angle)                    \
+                            + axisVector_normalized*np.dot(axisVector_normalized, (posVector - originVector))*(1 - math.cos(angle)))
+        
+        # Assign the rotated vector components to the point.<coordinates>
+        self.x = round(posVector_rotated[0], 12)
+        self.y = round(posVector_rotated[1], 12)
+        self.z = round(posVector_rotated[2], 12)
+
+        # Rotate the point in the gmsh model
         gmsh.model.occ.rotate(
             [(self.dim, self.tag)],
             *origin,
@@ -613,10 +631,10 @@ class AirfoilSpline:
         
         self.update_all_splines()
         
-        for i in range(len(self.all_splines[next(iter(self.all_splines.keys()))])):
-            print(f"{self.all_splines['name'][i]}:")
-            for point in self.all_splines['pointSet'][i]:
-                print(f"x = {point.x}, y = {point.y}, z = {point.z}")
+        # for i in range(len(self.all_splines[next(iter(self.all_splines.keys()))])):
+        #     print(f"{self.all_splines['name'][i]}:")
+        #     for point in self.all_splines['pointSet'][i]:
+        #         print(f"x = {point.x}, y = {point.y}, z = {point.z}")
         
         if args[0]:            
             f = gmsh.model.mesh.field.add('BoundaryLayer')
@@ -628,9 +646,6 @@ class AirfoilSpline:
             gmsh.option.setNumber('Mesh.BoundaryLayerFanElements', 7)
             gmsh.model.mesh.field.setNumbers(f, 'FanPointsList', [self.te.tag])
             gmsh.model.mesh.field.setAsBoundaryLayer(f)
-
-        return self.upper_splines, self.lower_splines
-        # form the curvedloop
 
     def gen_upper_pointSet(self):
         if self.le_indx < self.te_indx:
@@ -772,10 +787,403 @@ class AirfoilSpline:
                 if point not in trans_pointSet:
                     trans_pointSet.append(point)
                     
-        for point in trans_pointSet:
-            print(f"x = {point.x}, y = {point.y}, z = {point.z}")
-                    
-        [point.translation(vector) for point in trans_pointSet]
+        [point.translation(vector) for point in trans_pointSet]        
+
+
+class AirfoilOffset:
+    def __init__(self, airfoil, value, mesh_size, extensionLength):
+        self.value = value
+        self.airfoil = airfoil
+        self.mesh_size = mesh_size
+
+        self.upper_offsetSplines = dict(pointSet = [], name = [], spline =[])
+        self.lower_offsetSplines = dict(pointSet = [], name = [], spline =[])
+        self.gen_offsetPointSet()
+
+        self.extensionSplines = dict(pointSet = [], name = [], spline =[])
+        self.extensionLines = dict(pointSet = [], name = [], line =[])
+        self.gen_extensionPoints(extensionLength, 1)
+
+        self.upper_connection_lines = []
+        self.lower_connection_lines = []       
+        
+    def gen_offsetPointSet(self):
+        vector_z = np.array([0,0,1])
+
+        for index_pointSet, pointSet in enumerate(self.airfoil.upper_splines['pointSet']):
+            offsetPointSet = []
+
+            if index_pointSet > 0:
+                last_PointSet = self.airfoil.upper_splines['pointSet'][index_pointSet-1]
+            if index_pointSet < len(self.airfoil.upper_splines['pointSet']) - 1:
+                next_PointSet = self.airfoil.upper_splines['pointSet'][index_pointSet+1]
+
+            for index_point, point in enumerate(pointSet):
+                if point is self.airfoil.le:
+                    upperPoint = self.airfoil.upper_splines['pointSet'][0][1]
+                    lowerPoint = self.airfoil.lower_splines['pointSet'][0][1]
+
+                    vector_lowerPoint = np.array([lowerPoint.x - point.x, lowerPoint.y - point.y, 0])
+                    vector_lowerPoint_normalized = vector_lowerPoint/np.linalg.norm(vector_lowerPoint)
+                    vector_normal_lowerPoint = np.cross(vector_lowerPoint_normalized, vector_z)
+
+                    vector_upperPoint = np.array([upperPoint.x - point.x, upperPoint.y - point.y, 0])
+                    vector_upperPoint_normalized = vector_upperPoint/np.linalg.norm(vector_upperPoint)
+                    vector_normal_upperPoint = np.cross(vector_z, vector_upperPoint_normalized)
+
+                    vector_normal = (vector_normal_lowerPoint + vector_normal_upperPoint)/np.linalg.norm(vector_normal_lowerPoint + vector_normal_upperPoint)
+                elif point is self.airfoil.te:
+                    lastPoint = pointSet[index_point - 1]
+
+                    vector_lastPoint = np.array([lastPoint.x - point.x, lastPoint.y - point.y, 0])
+                    vector_lastPoint_normalized = vector_lastPoint/np.linalg.norm(vector_lastPoint)
+                    vector_normal = np.cross(vector_lastPoint_normalized, vector_z)
+                else:
+                    if index_point == 0:
+                        nextPoint = pointSet[index_point + 1]
+                        lastPoint = last_PointSet[len(last_PointSet) - 2]
+                    elif index_point == len(pointSet) - 1:
+                        nextPoint = next_PointSet[1]
+                        lastPoint = pointSet[index_point - 1]
+                    else:
+                        nextPoint = pointSet[index_point + 1]
+                        lastPoint = pointSet[index_point - 1]
+            
+                    vector_lastPoint = np.array([lastPoint.x - point.x, lastPoint.y - point.y, 0])
+                    vector_lastPoint_normalized = vector_lastPoint/np.linalg.norm(vector_lastPoint)
+                    vector_normal_lastPoint = np.cross(vector_lastPoint_normalized, vector_z)
+
+                    vector_nextPoint = np.array([nextPoint.x - point.x, nextPoint.y - point.y, 0])
+                    vector_nextPoint_normalized = vector_nextPoint/np.linalg.norm(vector_nextPoint)
+                    vector_normal_nextPoint = np.cross(vector_z, vector_nextPoint_normalized)
+
+                    vector_normal = (vector_normal_lastPoint + vector_normal_nextPoint)/np.linalg.norm(vector_normal_lastPoint + vector_normal_nextPoint)
+
+                vector_offsetPoint = np.array([point.x, point.y, point.z]) + self.value*vector_normal
+                offsetPointSet.append(Point(vector_offsetPoint[0], vector_offsetPoint[1], 0, self.mesh_size))
+            self.upper_offsetSplines["name"].append(self.airfoil.upper_splines['name'][index_pointSet])
+            self.upper_offsetSplines["pointSet"].append(offsetPointSet)
+
+
+        for index_pointSet, pointSet in enumerate(self.airfoil.lower_splines['pointSet']):
+            offsetPointSet = []
+
+            if index_pointSet > 0:
+                last_PointSet = self.airfoil.lower_splines['pointSet'][index_pointSet-1]
+            if index_pointSet < len(self.airfoil.lower_splines['pointSet']) - 1:
+                next_PointSet = self.airfoil.lower_splines['pointSet'][index_pointSet+1]
+
+            for index_point, point in enumerate(pointSet):
+                if point is self.airfoil.le:
+                    upperPoint = self.airfoil.upper_splines['pointSet'][0][1]
+                    lowerPoint = self.airfoil.lower_splines['pointSet'][0][1]
+
+                    vector_lowerPoint = np.array([lowerPoint.x - point.x, lowerPoint.y - point.y, 0])
+                    vector_lowerPoint_normalized = vector_lowerPoint/np.linalg.norm(vector_lowerPoint)
+                    vector_normal_lowerPoint = np.cross(vector_lowerPoint_normalized, vector_z)
+
+                    vector_upperPoint = np.array([upperPoint.x - point.x, upperPoint.y - point.y, 0])
+                    vector_upperPoint_normalized = vector_upperPoint/np.linalg.norm(vector_upperPoint)
+                    vector_normal_upperPoint = np.cross(vector_z, vector_upperPoint_normalized)
+
+                    vector_normal = (vector_normal_lowerPoint + vector_normal_upperPoint)/np.linalg.norm(vector_normal_lowerPoint + vector_normal_upperPoint)
+                elif point is self.airfoil.te:
+                    lastPoint = pointSet[index_point - 1]
+
+                    vector_lastPoint = np.array([lastPoint.x - point.x, lastPoint.y - point.y, 0])
+                    vector_lastPoint_normalized = vector_lastPoint/np.linalg.norm(vector_lastPoint)
+                    vector_normal = np.cross(vector_z, vector_lastPoint_normalized)
+                else:
+                    if index_point == 0:
+                        nextPoint = pointSet[index_point + 1]
+                        lastPoint = last_PointSet[len(last_PointSet) - 2]
+                    elif index_point == len(pointSet) - 1:
+                        nextPoint = next_PointSet[1]
+                        lastPoint = pointSet[index_point - 1]
+                    else:
+                        nextPoint = pointSet[index_point + 1]
+                        lastPoint = pointSet[index_point - 1]
+            
+                    vector_lastPoint = np.array([lastPoint.x - point.x, lastPoint.y - point.y, 0])
+                    vector_lastPoint_normalized = vector_lastPoint/np.linalg.norm(vector_lastPoint)
+                    vector_normal_lastPoint = np.cross(vector_z, vector_lastPoint_normalized)
+
+                    vector_nextPoint = np.array([nextPoint.x - point.x, nextPoint.y - point.y, 0])
+                    vector_nextPoint_normalized = vector_nextPoint/np.linalg.norm(vector_nextPoint)
+                    vector_normal_nextPoint = np.cross(vector_nextPoint_normalized, vector_z)
+
+                    vector_normal = (vector_normal_lastPoint + vector_normal_nextPoint)/np.linalg.norm(vector_normal_lastPoint + vector_normal_nextPoint)
+
+                vector_offsetPoint = np.array([point.x, point.y, point.z]) + self.value*vector_normal
+                offsetPointSet.append(Point(vector_offsetPoint[0], vector_offsetPoint[1], 0, self.mesh_size))
+            self.lower_offsetSplines["name"].append(self.airfoil.lower_splines['name'][index_pointSet])
+            self.lower_offsetSplines["pointSet"].append(offsetPointSet)
+        
+        for index_pointSet, pointSet in enumerate(self.upper_offsetSplines["pointSet"]):
+            print(f"{self.upper_offsetSplines['name'][index_pointSet]}:")
+            for point in pointSet:
+                print(f"x = {point.x}, y = {point.y}, z = {point.z}")
+
+    def gen_extensionPoints(self, extensionLength, transitionLength):
+        extensions = dict(name = [], posVector = [], tangVector = [], transitionLength = [])
+
+        # Calculate position and tangential vector for upper offset
+        currentPoint = self.upper_offsetSplines['pointSet'][-1][-1]
+        lastPoint = self.upper_offsetSplines['pointSet'][-1][-2]
+
+        tangVector = np.array([currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y, 0])
+        tangVector_normalized = tangVector/np.linalg.norm(tangVector)
+
+        extensions['name'].append("upper_offset")
+        extensions['posVector'].append(np.array([currentPoint.x, currentPoint.y, currentPoint.z]))
+        extensions['tangVector'].append(tangVector_normalized)
+        extensions['transitionLength'].append(transitionLength - (currentPoint.x - self.airfoil.te.x))
+        
+        # Calculate TE position and tangential vector
+        currentPoint = self.airfoil.te
+        lastPoint_SS = self.airfoil.upper_splines['pointSet'][-1][-2]
+        lastPoint_PS = self.airfoil.lower_splines['pointSet'][-1][-2]
+ 
+        tangVector_SS = np.array([currentPoint.x - lastPoint_SS.x, currentPoint.y - lastPoint_SS.y, 0])
+        tangVector_SS_normalized = tangVector_SS/np.linalg.norm(tangVector_SS)
+
+        tangVector_te_PS = np.array([currentPoint.x - lastPoint_PS.x, currentPoint.y - lastPoint_PS.y, 0])
+        tangVector_te_PS_normalized = tangVector_te_PS/np.linalg.norm(tangVector_te_PS)
+
+        tangVector_normalized = (tangVector_SS_normalized + tangVector_te_PS_normalized)/np.linalg.norm(tangVector_SS_normalized + tangVector_te_PS_normalized)
+
+        extensions['name'].append("te")
+        extensions['posVector'].append(np.array([currentPoint.x, currentPoint.y, currentPoint.z]))
+        extensions['tangVector'].append(tangVector_normalized)
+        extensions['transitionLength'].append(transitionLength)
+
+        # Calculate position and tangential vector for upper offset
+        currentPoint = self.lower_offsetSplines['pointSet'][-1][-1]
+        lastPoint = self.lower_offsetSplines['pointSet'][-1][-2]
+
+        tangVector = np.array([currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y, 0])
+        tangVector_normalized = tangVector/np.linalg.norm(tangVector)
+
+        extensions['name'].append("lower_offset")
+        extensions['posVector'].append(np.array([currentPoint.x, currentPoint.y, currentPoint.z]))
+        extensions['tangVector'].append(tangVector_normalized)
+        extensions['transitionLength'].append(transitionLength - (currentPoint.x - self.airfoil.te.x))
+
+        for index, name in enumerate(extensions['name']):
+            posVector_control = self.calculate_posVectors(extensions['posVector'][index], extensions['tangVector'][index], extensions['transitionLength'][index])
+        
+            print(extensions['transitionLength'][index])
+
+            extensionPoints = [Point(posVector_control[0][0], posVector_control[0][1], posVector_control[0][2], self.mesh_size)]
+            extensionPoints.extend(self.spline_interpolation(posVector_control[0], posVector_control[1], posVector_control[2], extensions['transitionLength'][index]))
+            extensionPoints.append(Point(posVector_control[2][0], posVector_control[2][1], posVector_control[2][2], self.mesh_size))
+            self.extensionSplines['pointSet'].append(extensionPoints)
+            
+            # Generate extension line points
+            endPoint_extensionLine = Point(self.airfoil.te.x + extensionLength, extensionPoints[-1].y, extensionPoints[-1].z, self.mesh_size)
+            self.extensionLines['pointSet'].append([extensionPoints[-1], endPoint_extensionLine])
+
+    def calculate_posVectors(self, posVector_start, tangVector_start, transitionLength):
+        # Define or calculate the position vectors
+        posVectors = [posVector_start]
+        if tangVector_start[0]/tangVector_start[1] > 0:
+            posVectors.append(np.array([posVectors[0][0] + tangVector_start[0]/tangVector_start[1]*transitionLength*(-tangVector_start[0]/tangVector_start[1] + np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)), 
+                                        posVectors[0][1] + transitionLength*(-tangVector_start[0]/tangVector_start[1] + np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)),
+                                        0]))
+            posVectors.append(np.array([posVectors[0][0] + transitionLength,
+                                        posVectors[0][1] + transitionLength*(-tangVector_start[0]/tangVector_start[1] + np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)),
+                                        0]))
+        elif tangVector_start[0]/tangVector_start[1] < 0:
+            posVectors.append(np.array([posVectors[0][0] + tangVector_start[0]/tangVector_start[1]*transitionLength*(-tangVector_start[0]/tangVector_start[1] - np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)), 
+                                        posVectors[0][1] + transitionLength*(-tangVector_start[0]/tangVector_start[1] - np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)),
+                                        0]))
+            posVectors.append(np.array([posVectors[0][0] + transitionLength,
+                                        posVectors[0][1] + transitionLength*(-tangVector_start[0]/tangVector_start[1] - np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)),
+                                        0]))
+        
+        print(f"P0: {posVectors[0]}")
+        print(f"P1: {posVectors[1]}")
+        print(f"P2: {posVectors[2]}")
+
+        return posVectors
+ 
+    def spline_interpolation(self, posVector_start, posVector_connection, posVector_end, transitionLength):
+        # Performing spline interpolation on <n_interpolation> points
+        
+        interpolationPointSet = []
+        n_interpolation = round(20*transitionLength)
+        posVector_interPoint = []
+        for n in range(n_interpolation - 1):
+            # Kurvenparameter
+            t = (n+1)*1/n_interpolation
+            
+            # Quadratic Bezier
+            interpolationPoint = (1 - t)**2*posVector_start + 2*(1 - t)*t*posVector_connection + t**2*posVector_end
+            interpolationPointSet.append(Point(interpolationPoint[0], interpolationPoint[1], interpolationPoint[2], self.mesh_size))
+
+            # # Cubic Hemite Spline with tangential vectors scaled by the extension length
+            # posVector_interPoint = (2*t**3 - 3*t**2 + 1)*posVector_transStart           \
+            #                         + (t**3 - 2*t**2 + t)*tangVector_start*transitionLength    \
+            #                         + (-2*t**3 + 3*t**2)*posVector_transEnd                \
+            #                         + (t**3 - t**2)*tangVector_end*transitionLength
+        
+        return interpolationPointSet
+
+    def gen_skin(self):
+        # Create the Splines depending on the le and te location in point_cloud
+        for pointSet in self.upper_offsetSplines['pointSet']:
+            self.upper_offsetSplines['spline'].append(Spline(pointSet))
+        
+        for pointSet in self.lower_offsetSplines['pointSet']:
+            self.lower_offsetSplines['spline'].append(Spline(pointSet))
+
+        for pointSet in self.extensionSplines['pointSet']:
+            self.extensionSplines['spline'].append(Spline(pointSet))
+
+        for pointSet in self.extensionLines['pointSet']:
+            self.extensionLines['line'].append(Line(pointSet[0],pointSet[1]))
+
+    def gen_connection_lines(self):
+
+        # Generate surface normal lines for transfinite mesh
+        self.upper_connection_lines.append(Line(self.airfoil.upper_splines['pointSet'][0][0], self.upper_offsetSplines['pointSet'][0][0]))
+        for index_pointSets, offset_pointSet in enumerate(self.upper_offsetSplines["pointSet"]):
+            airfoil_pointSet = self.airfoil.upper_splines['pointSet'][index_pointSets]
+            self.upper_connection_lines.append(Line(airfoil_pointSet[len(airfoil_pointSet) - 1], offset_pointSet[len(offset_pointSet) - 1]))
+        self.upper_connection_lines.append(Line(self.extensionSplines['pointSet'][1][-1], self.extensionSplines['pointSet'][0][-1]))
+        self.upper_connection_lines.append(Line(self.extensionLines['pointSet'][1][-1], self.extensionLines['pointSet'][0][-1]))
+
+        self.lower_connection_lines.append(Line(self.airfoil.upper_splines['pointSet'][0][0], self.upper_offsetSplines['pointSet'][0][0]))
+        for index_pointSets, offset_pointSet in enumerate(self.lower_offsetSplines["pointSet"]):
+            airfoil_pointSet = self.airfoil.lower_splines['pointSet'][index_pointSets]
+            self.lower_connection_lines.append(Line(airfoil_pointSet[len(airfoil_pointSet) - 1], offset_pointSet[len(offset_pointSet) - 1]))
+        self.lower_connection_lines.append(Line(self.extensionSplines['pointSet'][1][-1], self.extensionSplines['pointSet'][2][-1]))
+        self.lower_connection_lines.append(Line(self.extensionLines['pointSet'][1][-1], self.extensionLines['pointSet'][2][-1]))
+
+    def gen_inner_planeSurfaces(self):
+        # Generate inner plane surfaces:
+        self.inner_planeSurfaces = []
+
+        for index_spline, spline in enumerate(self.upper_offsetSplines['spline']):
+            curve_list = []
+            curve_list.append(self.upper_connection_lines[index_spline])
+            curve_list.append(spline)
+            curve_list.append(self.upper_connection_lines[index_spline + 1])
+            curve_list.append(self.airfoil.upper_splines['spline'][index_spline])
+            self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+            gmsh.model.occ.synchronize()
+            print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+
+        curve_list = []
+        curve_list.append(self.upper_connection_lines[-3])
+        curve_list.append(self.extensionSplines['spline'][1])
+        curve_list.append(self.upper_connection_lines[-2])
+        curve_list.append(self.extensionSplines['spline'][0])
+        self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+        gmsh.model.occ.synchronize()
+        print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+
+        curve_list = []
+        curve_list.append(self.upper_connection_lines[-2])
+        curve_list.append(self.extensionLines['line'][1])
+        curve_list.append(self.upper_connection_lines[-1])
+        curve_list.append(self.extensionLines['line'][0])
+        self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+        gmsh.model.occ.synchronize()
+        print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+
+        for index_spline, spline in enumerate(self.lower_offsetSplines['spline']):
+            curve_list = []
+            curve_list.append(self.lower_connection_lines[index_spline])
+            curve_list.append(spline)
+            curve_list.append(self.lower_connection_lines[index_spline + 1])
+            curve_list.append(self.airfoil.lower_splines['spline'][index_spline])
+            self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+            gmsh.model.occ.synchronize()
+            print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+        
+        curve_list = []
+        curve_list.append(self.lower_connection_lines[-3])
+        curve_list.append(self.extensionSplines['spline'][1])
+        curve_list.append(self.lower_connection_lines[-2])
+        curve_list.append(self.extensionSplines['spline'][2])
+        self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+        gmsh.model.occ.synchronize()
+        print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+
+        curve_list = []
+        curve_list.append(self.lower_connection_lines[-2])
+        curve_list.append(self.extensionLines['line'][1])
+        curve_list.append(self.lower_connection_lines[-1])
+        curve_list.append(self.extensionLines['line'][2])
+        self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+        gmsh.model.occ.synchronize()
+        print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+
+    def close_loop(self):
+        """
+        Method to form a close loop with the current geometrical object
+
+        Returns
+        -------
+        _ : int
+            return the tag of the CurveLoop object
+        """               
+        outer_loop_curve_list = []
+        outer_loop_curve_list.extend(self.upper_offsetSplines["spline"])
+        outer_loop_curve_list.extend(self.lower_offsetSplines["spline"])
+        outer_loop_curve_list.append(self.extensionSplines["spline"][0])
+        outer_loop_curve_list.append(self.extensionSplines["spline"][2])
+        outer_loop_curve_list.append(self.extensionLines["line"][0])
+        outer_loop_curve_list.append(self.extensionLines["line"][2])
+        outer_loop_curve_list.append(self.upper_connection_lines[-1])
+        outer_loop_curve_list.append(self.lower_connection_lines[-1])
+        return CurveLoop(outer_loop_curve_list).tag
+
+    def set_transfinite(self):
+        # Face normal transfinite mesh sittings
+        n_normal = 40
+        growth_rate_normal = 1.1
+
+        connection_lines = []
+        connection_lines.extend(self.upper_connection_lines[:-1])
+        connection_lines.extend(self.lower_connection_lines[:-1])
+
+        for line in connection_lines:
+            gmsh.model.mesh.setTransfiniteCurve(line.tag, n_normal, "Progression", growth_rate_normal)
+
+        # Guarantee even normal cell distribution on the end of the extension
+        growth_rate_normal = 1
+        gmsh.model.mesh.setTransfiniteCurve(self.upper_connection_lines[-1].tag, n_normal, "Progression", growth_rate_normal)
+        gmsh.model.mesh.setTransfiniteCurve(self.lower_connection_lines[-1].tag, n_normal, "Progression", growth_rate_normal)
+
+        # 
+        n_tangential = 150
+        growth_rate_tangential = 1
+
+        airfoilSplines = self.airfoil.all_splines['spline']
+
+        offsetSplines = []
+        offsetSplines.extend(self.upper_offsetSplines['spline'])
+        offsetSplines.extend(self.lower_offsetSplines['spline'])
+
+        extensionSplines = self.extensionSplines['spline']
+
+        for spline in airfoilSplines:
+            gmsh.model.mesh.setTransfiniteCurve(spline.tag, n_tangential, "Progression", growth_rate_tangential)
+        for spline in offsetSplines:
+            gmsh.model.mesh.setTransfiniteCurve(spline.tag, n_tangential, "Progression", growth_rate_tangential)
+        for spline in extensionSplines:
+            gmsh.model.mesh.setTransfiniteCurve(spline.tag, n_tangential, "Progression", growth_rate_tangential)
+
+        for line in self.extensionLines['line']:
+            gmsh.model.mesh.setTransfiniteCurve(line.tag, n_tangential, "Progression", growth_rate_tangential)
+
+        # Set and recombine transfinite surfaces
+        for surface in self.inner_planeSurfaces:
+            gmsh.model.mesh.setTransfiniteSurface(surface)
+            gmsh.model.mesh.setRecombine(2, surface)
+            # gmsh.model.mesh.setSmoothing(2, surface, 20)
 
 
 class PlaneSurface:
