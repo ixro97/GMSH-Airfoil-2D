@@ -250,7 +250,6 @@ def main():
     # Generate domain
     if offsetTrigger:
         offset = AirfoilOffset(airfoil, 0.5, args.airfoil_mesh_size*2, 3)
-        # offset.rotation(aoa, (0.5, 0, 0), (0, 0, 1))
         offset.gen_skin()
         offset.gen_connection_lines()
         offset.gen_inner_planeSurfaces()
@@ -267,6 +266,7 @@ def main():
     airfoil.define_bc()
     surface_domain.define_bc()
 
+    print(gmsh.model.getEntities(1))
     gmsh.fltk.run()
 
     if args.quad:
