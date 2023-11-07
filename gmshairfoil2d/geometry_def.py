@@ -720,12 +720,12 @@ class AirfoilSpline:
         # Find all different boundaries
         
         self.bcs = {"name": [], "spline tags": [], "physical group": []}
-        for i in range(len(self.all_splines[next(iter(self.all_splines.keys()))])):
-            if self.all_splines["name"][i] in self.bcs["name"]:
-                self.bcs["spline tags"][self.bcs["name"].index(self.all_splines["name"][i])].append(self.all_splines["spline"][i].tag)
+        for index, spline in enumerate(self.all_splines['spline']):
+            if self.all_splines["name"][index] in self.bcs["name"]:
+                self.bcs["spline tags"][self.bcs["name"].index(self.all_splines["name"][index])].append(spline.tag)
             else:
-                self.bcs["name"].append(self.all_splines["name"][i])
-                self.bcs["spline tags"].append([self.all_splines["spline"][i].tag])
+                self.bcs["name"].append(self.all_splines["name"][index])
+                self.bcs["spline tags"].append([spline.tag])
                 
         for i in range(len(self.bcs[next(iter(self.bcs.keys()))])):
             self.bcs["physical group"].append(gmsh.model.addPhysicalGroup(self.dim, self.bcs["spline tags"][i]))
@@ -1052,27 +1052,27 @@ class AirfoilOffset:
             curve_list.append(spline)
             curve_list.append(self.upper_connection_lines[index_spline + 1])
             curve_list.append(self.airfoil.upper_splines['spline'][index_spline])
-            self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+            self.inner_planeSurfaces.append(PlaneSurface([CurveLoop(curve_list)]))
             gmsh.model.occ.synchronize()
-            print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+            print(f"Surface {self.inner_planeSurfaces[-1].tag}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1].tag)], combined = False, oriented = True, recursive = False)]}")
 
         curve_list = []
         curve_list.append(self.upper_connection_lines[-3])
         curve_list.append(self.extensionSplines['spline'][1])
         curve_list.append(self.upper_connection_lines[-2])
         curve_list.append(self.extensionSplines['spline'][0])
-        self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+        self.inner_planeSurfaces.append(PlaneSurface([CurveLoop(curve_list)]))
         gmsh.model.occ.synchronize()
-        print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+        print(f"Surface {self.inner_planeSurfaces[-1].tag}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1].tag)], combined = False, oriented = True, recursive = False)]}")
 
         curve_list = []
         curve_list.append(self.upper_connection_lines[-2])
         curve_list.append(self.extensionLines['line'][1])
         curve_list.append(self.upper_connection_lines[-1])
         curve_list.append(self.extensionLines['line'][0])
-        self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+        self.inner_planeSurfaces.append(PlaneSurface([CurveLoop(curve_list)]))
         gmsh.model.occ.synchronize()
-        print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+        print(f"Surface {self.inner_planeSurfaces[-1].tag}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1].tag)], combined = False, oriented = True, recursive = False)]}")
 
         for index_spline, spline in enumerate(self.lower_offsetSplines['spline']):
             curve_list = []
@@ -1080,27 +1080,27 @@ class AirfoilOffset:
             curve_list.append(spline)
             curve_list.append(self.lower_connection_lines[index_spline + 1])
             curve_list.append(self.airfoil.lower_splines['spline'][index_spline])
-            self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+            self.inner_planeSurfaces.append(PlaneSurface([CurveLoop(curve_list)]))
             gmsh.model.occ.synchronize()
-            print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+            print(f"Surface {self.inner_planeSurfaces[-1].tag}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1].tag)], combined = False, oriented = True, recursive = False)]}")
         
         curve_list = []
         curve_list.append(self.lower_connection_lines[-3])
         curve_list.append(self.extensionSplines['spline'][1])
         curve_list.append(self.lower_connection_lines[-2])
         curve_list.append(self.extensionSplines['spline'][2])
-        self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+        self.inner_planeSurfaces.append(PlaneSurface([CurveLoop(curve_list)]))
         gmsh.model.occ.synchronize()
-        print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+        print(f"Surface {self.inner_planeSurfaces[-1].tag}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1].tag)], combined = False, oriented = True, recursive = False)]}")
 
         curve_list = []
         curve_list.append(self.lower_connection_lines[-2])
         curve_list.append(self.extensionLines['line'][1])
         curve_list.append(self.lower_connection_lines[-1])
         curve_list.append(self.extensionLines['line'][2])
-        self.inner_planeSurfaces.append(gmsh.model.occ.addPlaneSurface([CurveLoop(curve_list).tag]))
+        self.inner_planeSurfaces.append(PlaneSurface([CurveLoop(curve_list)]))
         gmsh.model.occ.synchronize()
-        print(f"Surface {self.inner_planeSurfaces[-1]}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1])], combined = False, oriented = True, recursive = False)]}")
+        print(f"Surface {self.inner_planeSurfaces[-1].tag}: expected = {[curve.tag for curve in curve_list]} / actual = {[boundary[1] for boundary in gmsh.model.getBoundary([(2,self.inner_planeSurfaces[-1].tag)], combined = False, oriented = True, recursive = False)]}")
 
     def close_loop(self):
         """
@@ -1188,13 +1188,19 @@ class PlaneSurface:
     def __init__(self, geom_objects):
 
         self.geom_objects = geom_objects
-        # close_loop() will form a close loop object and return its tag
-        self.tag_list = [geom_object.close_loop() for geom_object in self.geom_objects]
-
         self.dim = 2
+        
+        if all(isinstance(geom_object, CurveLoop) for geom_object in geom_objects):
+            self.tag_list = [geom_object.tag for geom_object in self.geom_objects]
+            
+            # create the gmsh object and store the tag of the geometric object
+            self.tag = gmsh.model.occ.addPlaneSurface(self.tag_list)
+        else:
+            # close_loop() will form a close loop object and return its tag
+            self.tag_list = [geom_object.close_loop() for geom_object in self.geom_objects]
 
-        # create the gmsh object and store the tag of the geometric object
-        self.tag = gmsh.model.occ.addPlaneSurface(self.tag_list)
+            # create the gmsh object and store the tag of the geometric object
+            self.tag = gmsh.model.occ.addPlaneSurface(self.tag_list)
 
     def define_bc(self):
         """

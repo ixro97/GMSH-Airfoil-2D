@@ -247,6 +247,7 @@ def main():
 
     offsetTrigger = True
     surface_domain = None
+    offset = None
     # Generate domain
     if offsetTrigger:
         offset = AirfoilOffset(airfoil, 0.5, args.airfoil_mesh_size*2, 3)
@@ -254,7 +255,9 @@ def main():
         offset.gen_connection_lines()
         offset.gen_inner_planeSurfaces()
         gmsh.model.occ.synchronize()
-        offset.set_transfinite()
+        for planeSurface in offset.inner_planeSurfaces:
+            planeSurface.define_bc()
+        # offset.set_transfinite()
 
         surface_domain = PlaneSurface([ext_domain, offset])
     else:
@@ -280,6 +283,10 @@ def main():
         extrusion = MeshExtrusion(surface_domain, extrusion_value)
         extrusion.define_bc()
         
+        for planeSurface in offset.inner_planeSurfaces:
+            extrusion = MeshExtrusion(planeSurface, extrusion_value)
+            extrusion.define_bc()
+        
         gmsh.model.mesh.generate(3)
     else:
         gmsh.model.mesh.generate(2)
@@ -287,6 +294,14 @@ def main():
     # Open user interface of GMSH
     if args.ui:
         gmsh.fltk.run()
+
+    # Notes for hopr file writing:
+    # if args.format == 'cgns':
+    #     hoprBC_path = Path(args.output, f"mesh_airfoil_{airfoil_name}.{args.format}")
+    #     with open(hoprBC_path, "w") as file:
+    #         # Write each line to the file
+    #         for group in gmsh.model.getPhysicalGroups(2):
+    #             file.write(line + "\n")  # Add a newline character to separate lines
 
     # Mesh file name and output
     mesh_path = Path(args.output, f"mesh_airfoil_{airfoil_name}.{args.format}")
