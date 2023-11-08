@@ -7,6 +7,16 @@ import gmsh
 import numpy as np
 import math
 
+class InstanceTracker(type):
+    def __init__(cls, name, bases, attrs):
+        super().__init__(name, bases, attrs)
+        cls.instances = []
+
+    def __call__(cls, *args, **kwargs):
+        instance = super().__call__(*args, **kwargs)
+        cls.instances.append(instance)
+        return instance
+
 
 class Point:
     """
@@ -298,8 +308,7 @@ class Circle:
         -------
         """
 
-        self.bc = gmsh.model.addPhysicalGroup(self.dim, [self.tag])
-        self.physical_name = gmsh.model.setPhysicalName(self.dim, self.bc, "farfield")
+        self.bc = BoundaryCondition(self.dim, "farfield", [self.tag])
 
     def rotation(self, angle, origin, axis):
         """
@@ -403,18 +412,11 @@ class Rectangle:
         -------
         """
 
-        self.bc_in = gmsh.model.addPhysicalGroup(self.dim, [self.lines[3].tag], tag=-1)
-        gmsh.model.setPhysicalName(self.dim, self.bc_in, "inlet")
+        self.bc_in = BoundaryCondition(self.dim, "inlet", [self.lines[3].tag])
+        self.bc_out = BoundaryCondition(self.dim, "outlet", [self.lines[1].tag])
+        self.bc_wall = BoundaryCondition(self.dim, "wall", [self.lines[0].tag, self.lines[2].tag])
 
-        self.bc_out = gmsh.model.addPhysicalGroup(self.dim, [self.lines[1].tag])
-        gmsh.model.setPhysicalName(self.dim, self.bc_out, "outlet")
-
-        self.bc_wall = gmsh.model.addPhysicalGroup(
-            self.dim, [self.lines[0].tag, self.lines[2].tag]
-        )
-        gmsh.model.setPhysicalName(self.dim, self.bc_wall, "wall")
-
-        self.bc = [self.bc_in, self.bc_out, self.bc_wall]
+        self.bcs = [self.bc_in, self.bc_out, self.bc_wall]
 
     def rotation(self, angle, origin, axis):
         """
@@ -505,8 +507,7 @@ class Airfoil:
         -------
         """
 
-        self.bc = gmsh.model.addPhysicalGroup(self.dim, self.lines_tag)
-        gmsh.model.setPhysicalName(self.dim, self.bc, self.name)
+        self.bc = BoundaryCondition(self.dim, self.name, self.lines_tag)
 
     def rotation(self, angle, origin, axis):
         """
@@ -588,6 +589,8 @@ class AirfoilSpline:
                     self.upper_splines = self.split_pointSet(splittingPoints, self.upper_splines, bc_data["name"][i])
                 else:
                     self.lower_splines = self.split_pointSet(splittingPoints, self.lower_splines, bc_data["name"][i])
+
+        self.bcs = []
         
         # set class variable self.all_splines containing all airfoil splines
         self.update_all_splines()
@@ -719,17 +722,17 @@ class AirfoilSpline:
         """
         # Find all different boundaries
         
-        self.bcs = {"name": [], "spline tags": [], "physical group": []}
-        for index, spline in enumerate(self.all_splines['spline']):
-            if self.all_splines["name"][index] in self.bcs["name"]:
-                self.bcs["spline tags"][self.bcs["name"].index(self.all_splines["name"][index])].append(spline.tag)
+        for spline_index, spline in enumerate(self.all_splines['spline']):
+            bc_name = self.all_splines['name'][spline_index]
+            bc_entities = [spline.tag]
+
+            for bc in BoundaryCondition.instances:
+                if bc.name == bc_name and bc.dim == self.dim:
+                    self.bcs.append(bc)
+                    bc.tag_list.extend(bc_entities)
+                    break
             else:
-                self.bcs["name"].append(self.all_splines["name"][index])
-                self.bcs["spline tags"].append([spline.tag])
-                
-        for i in range(len(self.bcs[next(iter(self.bcs.keys()))])):
-            self.bcs["physical group"].append(gmsh.model.addPhysicalGroup(self.dim, self.bcs["spline tags"][i]))
-            gmsh.model.setPhysicalName(self.dim, self.bcs["physical group"][i], self.bcs["name"][i])
+                self.bcs.append(BoundaryCondition(self.dim, bc_name, bc_entities))
 
     def rotation(self, angle, origin, axis):
         """
@@ -1184,7 +1187,6 @@ class PlaneSurface:
         define holes in the surface domaine
 
     """
-
     def __init__(self, geom_objects):
 
         self.geom_objects = geom_objects
@@ -1207,9 +1209,16 @@ class PlaneSurface:
         Method that define the domain marker of the surface
         -------
         """
-        self.ps = gmsh.model.addPhysicalGroup(self.dim, [self.tag])
-        gmsh.model.setPhysicalName(self.dim, self.ps, "fluid")
+        bc_name = "fluid"
+        bc_entities = [self.tag]
 
+        for bc in BoundaryCondition.instances:
+            if bc.name == bc_name and bc.dim == self.dim:
+                self.bc = bc 
+                bc.tag_list.append(self.tag)
+                return
+        
+        self.bc = BoundaryCondition(self.dim, bc_name, bc_entities)
 
 class MeshExtrusion:
     """
@@ -1227,7 +1236,6 @@ class MeshExtrusion:
         define holes in the surface domaine
 
     """
-
     def __init__(self, plane_surface, extrusion_value):
         
         self.dim = 3
@@ -1244,23 +1252,28 @@ class MeshExtrusion:
             bc_name = gmsh.model.getPhysicalName(bc[0],bc[1])
             bc_entities = gmsh.model.getEntitiesForPhysicalGroup(bc[0],bc[1])
             
-            if bc_name not in self.bc_surface['name']:
-                self.bc_surface['name'].append(bc_name)
-                self.bc_surface['tags'].append([])
-                for extruded_surface_tag in ov[2:len(ov)]:
-                    if gmsh.model.getBoundary([extruded_surface_tag], combined=True, oriented=False, recursive=False)[0][1] in bc_entities:
-                        self.bc_surface['tags'][self.bc_surface['name'].index(bc_name)].append(extruded_surface_tag[1])
+            self.bc_surface['name'].append(bc_name)
+            self.bc_surface['tags'].append([])
+            for extruded_surface_tag in ov[2:len(ov)]:
+                if gmsh.model.getBoundary([extruded_surface_tag], combined=True, oriented=False, recursive=False)[0][1] in bc_entities:
+                    self.bc_surface['tags'][self.bc_surface['name'].index(bc_name)].append(extruded_surface_tag[1])
 
     def define_bc(self):
         """
         Method that define the domain marker of the surface
         -------
         """
-        gmsh.model.removePhysicalGroups([(self.plane_surface.dim,self.plane_surface.ps)])
-        
-        self.bc_volume['physical_group'] = gmsh.model.addPhysicalGroup(self.dim, self.bc_volume['tags'])        
-        gmsh.model.setPhysicalName(self.dim, self.bc_volume['physical_group'], self.bc_volume['name'])
-        
-        for i in range(len(self.bc_surface['name'])):
-            self.bc_surface['physical_group'].append(gmsh.model.addPhysicalGroup(self.plane_surface.dim, self.bc_surface['tags'][i]))
-            gmsh.model.setPhysicalName(self.plane_surface.dim, self.bc_surface['physical_group'][i], self.bc_surface['name'][i])
+
+
+class BoundaryCondition(metaclass=InstanceTracker):
+    def __init__(self, dimension, name, tag_list):
+        self.dim = dimension
+        self.name = name 
+        self.tag_list = tag_list
+        self.tag = None
+
+    @staticmethod
+    def generatePhysicalGroups():
+        for bc in BoundaryCondition.instances:
+            print(f"Created BoundaryCondition: {bc.name}")
+            bc.tag = gmsh.model.addPhysicalGroup(bc.dim, bc.tag_list, name = bc.name)

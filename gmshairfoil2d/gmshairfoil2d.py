@@ -11,7 +11,7 @@ import gmsh
 from gmshairfoil2d.airfoil_func import (NACA_4_digit_geom, get_airfoil_points,
                                         get_all_available_airfoil_names)
 from gmshairfoil2d.geometry_def import (AirfoilSpline, Circle, PlaneSurface,
-                                        Rectangle, MeshExtrusion, AirfoilOffset, CurveLoop)
+                                        Rectangle, MeshExtrusion, AirfoilOffset, BoundaryCondition)
 
 def main():
     # Instantiate the parser
@@ -269,10 +269,12 @@ def main():
     airfoil.define_bc()
     surface_domain.define_bc()
 
-    print(gmsh.model.getEntities(1))
+    BoundaryCondition.generatePhysicalGroups()
+
+    print(gmsh.model.getPhysicalGroups(1))
     gmsh.fltk.run()
 
-    if args.quad:
+    if args.quad: 
         gmsh.option.setNumber("Mesh.Algorithm", 8)
         gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1) 
         gmsh.option.setNumber("Mesh.RecombineAll", 1)
