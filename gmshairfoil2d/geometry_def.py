@@ -1252,19 +1252,11 @@ class MeshExtrusion:
         Method that define the domain marker of the surface
         -------
         """
-        print("new extrude:")
-        for bc in BoundaryCondition.instances:
-            print(f"{bc.name}, dim = {bc.dim}, tags = {bc.tag_list}")
-
         # Rename 2D fluid domain:
         bc_name, bc_dim = "fluid", 2
         currentBC = next((instance for instance in BoundaryCondition.instances if instance.name == bc_name and instance.dim == bc_dim), None)
         if currentBC != None:
             currentBC.name = "side_z-"
-        
-        # bc_name = []
-        # bc_entities = []
-        # bc_dim = []
 
         for extrude_dimtag in self.extrude_dimtags[2:len(self.extrude_dimtags)]:
             for bc in BoundaryCondition.instances:
@@ -1296,6 +1288,9 @@ class MeshExtrusion:
             currentBC.tag_list.extend(bc_entities)
         else:
             currentBC = BoundaryCondition(bc_dim, bc_name, bc_entities)
+
+        for bc in BoundaryCondition.instances:
+            print(f"{bc.name}, dim = {bc.dim}, tags = {bc.tag_list}")
 
 
 

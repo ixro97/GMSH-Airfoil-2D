@@ -144,6 +144,10 @@ def main():
     parser.add_argument(
         "--quad", action="store_true", help="Create quadrangular mesh based on Frontal-Delaunay for Quads (experimental) and the Simple Full-Quad recombination algorithm"
     )
+
+    parser.add_argument(
+        "--hopr", action="store_true", help="Create quadrangular mesh based on Frontal-Delaunay for Quads (experimental) and the Simple Full-Quad recombination algorithm"
+    )
     
     parser.add_argument(
         "--extrusion",
@@ -277,30 +281,41 @@ def main():
     # 3D extrusion and meshing
     if args.extrusion:
         extrusion_value = args.extrusion
-        extrusion = MeshExtrusion(surface_domain, extrusion_value)
-        extrusion.define_bc()
-        
         for planeSurface in offset.inner_planeSurfaces:
             extrusion = MeshExtrusion(planeSurface, extrusion_value)
             extrusion.define_bc()
+        extrusion = MeshExtrusion(surface_domain, extrusion_value)
+        extrusion.define_bc()
         
-        BoundaryCondition.generatePhysicalGroups(2,3)
+        BoundaryCondition.generatePhysicalGroups(2)
         gmsh.model.mesh.generate(3)
     else:
         BoundaryCondition.generatePhysicalGroups(1,2)
         gmsh.model.mesh.generate(2)
 
+    # Notes for hopr file writing:
+    if args.hopr:
+        hoprBC_path = Path(args.output, f"parameter_hopr_{airfoil_name}.ini")
+        with open(hoprBC_path, "w") as file:
+            # Write each line to the file
+            index_periodic_sides = [1,1]
+            for bc in BoundaryCondition.instances:
+                if bc.tag != None and bc.dim == 2:
+                    print(bc.name)
+                    for tag in bc.tag_list:
+                        file.write(f"BoundaryName       = S_{tag} ! BC is {bc.name}\n")   # Add a newline character to separate lines
+                        if bc.name =="side_z-": 
+                            file.write(f"BoundaryType       = (/1,0,0,{index_periodic_sides[0]}/)\n")
+                            index_periodic_sides[0] += 1
+                        elif bc.name =="side_z+":
+                            file.write(f"BoundaryType       = (/1,0,0,-{index_periodic_sides[1]}/)\n")
+                            index_periodic_sides[1] += 1
+                        else:
+                            file.write(f"BoundaryType       = (/-1,-1,0,0/)\n")
+
     # Open user interface of GMSH
     if args.ui:
         gmsh.fltk.run()
-
-    # Notes for hopr file writing:
-    # if args.format == 'cgns':
-    #     hoprBC_path = Path(args.output, f"mesh_airfoil_{airfoil_name}.{args.format}")
-    #     with open(hoprBC_path, "w") as file:
-    #         # Write each line to the file
-    #         for group in gmsh.model.getPhysicalGroups(2):
-    #             file.write(line + "\n")  # Add a newline character to separate lines
 
     # Mesh file name and output
     mesh_path = Path(args.output, f"mesh_airfoil_{airfoil_name}.{args.format}")
