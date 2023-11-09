@@ -16,7 +16,7 @@ class InstanceTracker(type):
         instance = super().__call__(*args, **kwargs)
         cls.instances.append(instance)
         return instance
-
+    
 
 class Point:
     """
@@ -1242,38 +1242,105 @@ class MeshExtrusion:
         self.extrusion_value = extrusion_value
         self.plane_surface = plane_surface
 
-        ov = gmsh.model.occ.extrude([(plane_surface.dim,plane_surface.tag)], 0, 0, extrusion_value, [1],recombine = True)
+        self.extrude_dimtags = gmsh.model.occ.extrude([(plane_surface.dim,plane_surface.tag)], 0, 0, extrusion_value, [1],recombine = True)
         gmsh.model.occ.synchronize()
         
-        self.bc_volume = dict(name = "fluid", tags = [ov[1][1]], physical_group = None)
-        self.bc_surface = dict(name = ["side_z-","side_z+"], tags = [[plane_surface.tag],[ov[0][1]]], physical_group = [])
-        
-        for bc in gmsh.model.getPhysicalGroups(1):
-            bc_name = gmsh.model.getPhysicalName(bc[0],bc[1])
-            bc_entities = gmsh.model.getEntitiesForPhysicalGroup(bc[0],bc[1])
-            
-            self.bc_surface['name'].append(bc_name)
-            self.bc_surface['tags'].append([])
-            for extruded_surface_tag in ov[2:len(ov)]:
-                if gmsh.model.getBoundary([extruded_surface_tag], combined=True, oriented=False, recursive=False)[0][1] in bc_entities:
-                    self.bc_surface['tags'][self.bc_surface['name'].index(bc_name)].append(extruded_surface_tag[1])
+        self.bcs =[]
 
     def define_bc(self):
         """
         Method that define the domain marker of the surface
         -------
         """
+        print("new extrude:")
+        for bc in BoundaryCondition.instances:
+            print(f"{bc.name}, dim = {bc.dim}, tags = {bc.tag_list}")
+
+        # Rename 2D fluid domain:
+        bc_name, bc_dim = "fluid", 2
+        currentBC = next((instance for instance in BoundaryCondition.instances if instance.name == bc_name and instance.dim == bc_dim), None)
+        if currentBC != None:
+            currentBC.name = "side_z-"
+        
+        # bc_name = []
+        # bc_entities = []
+        # bc_dim = []
+
+        for extrude_dimtag in self.extrude_dimtags[2:len(self.extrude_dimtags)]:
+            for bc in BoundaryCondition.instances:
+                if gmsh.model.getBoundary([extrude_dimtag], combined=True, oriented=False, recursive=False)[0][1] in bc.tag_list and bc.dim == 1:
+                    bc_name, bc_dim = bc.name, 2
+                    bc_entities = [extrude_dimtag[1]]
+                    
+                    currentBC = next((instance for instance in BoundaryCondition.instances if instance.name == bc_name and instance.dim == bc_dim), None)
+                    if currentBC != None:
+                        currentBC.tag_list.extend(bc_entities)
+                    else:
+                        currentBC = BoundaryCondition(bc_dim, bc_name, bc_entities)
+
+        bc_name, bc_dim = "side_z+", 2
+        bc_entities = [self.extrude_dimtags[0][1]]
+        
+        currentBC = next((instance for instance in BoundaryCondition.instances if instance.name == bc_name and instance.dim == bc_dim), None)
+        if currentBC != None:
+            currentBC.tag_list.extend(bc_entities)
+        else:
+            currentBC = BoundaryCondition(bc_dim, bc_name, bc_entities)
+
+        # 3D domain:
+        bc_name, bc_dim = "fluid", 3
+        bc_entities = [self.extrude_dimtags[1][1]]
+
+        currentBC = next((instance for instance in BoundaryCondition.instances if instance.name == bc_name and instance.dim == bc_dim), None)
+        if currentBC != None:
+            currentBC.tag_list.extend(bc_entities)
+        else:
+            currentBC = BoundaryCondition(bc_dim, bc_name, bc_entities)
+
 
 
 class BoundaryCondition(metaclass=InstanceTracker):
-    def __init__(self, dimension, name, tag_list):
-        self.dim = dimension
+    def __init__(self, dim, name, tag_list):
+        self.dim = dim
         self.name = name 
         self.tag_list = tag_list
         self.tag = None
 
     @staticmethod
-    def generatePhysicalGroups():
+    def generatePhysicalGroups(*dims):
         for bc in BoundaryCondition.instances:
-            print(f"Created BoundaryCondition: {bc.name}")
-            bc.tag = gmsh.model.addPhysicalGroup(bc.dim, bc.tag_list, name = bc.name)
+            if not dims:
+                print(f"Created BoundaryCondition: {bc.name}")
+                bc.tag = gmsh.model.addPhysicalGroup(bc.dim, bc.tag_list, name = bc.name)
+                continue
+            for dim in dims:
+                match dim:
+                    case 1:
+                        if dim == bc.dim:
+                            print(f"Created BoundaryCondition: {bc.name}")
+                            bc.tag = gmsh.model.addPhysicalGroup(bc.dim, bc.tag_list, name = bc.name)
+                    case 2:
+                        if dim == bc.dim:
+                            print(f"Created BoundaryCondition: {bc.name}")
+                            bc.tag = gmsh.model.addPhysicalGroup(bc.dim, bc.tag_list, name = bc.name)
+                    case 3:
+                        if dim == bc.dim:
+                            print(f"Created BoundaryCondition: {bc.name}")
+                            bc.tag = gmsh.model.addPhysicalGroup(bc.dim, bc.tag_list, name = bc.name)
+                    case _:
+                        raise ValueError(f"{dim} is no allowed value for dimension!")
+
+    @staticmethod
+    def exists(dim, name):
+        for bc in BoundaryCondition.instances:
+            if bc.name == name and bc.dim == dim:
+                return True
+        else:
+            return False
+    
+    def get(dim, name):
+        for bc in BoundaryCondition.instances:
+            if bc.name == name and bc.dim == dim:
+                return bc
+        else:
+            raise ValueError(f"No boundary condition {name} of dimension {dim} found!")

@@ -269,11 +269,6 @@ def main():
     airfoil.define_bc()
     surface_domain.define_bc()
 
-    BoundaryCondition.generatePhysicalGroups()
-
-    print(gmsh.model.getPhysicalGroups(1))
-    gmsh.fltk.run()
-
     if args.quad: 
         gmsh.option.setNumber("Mesh.Algorithm", 8)
         gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1) 
@@ -289,8 +284,10 @@ def main():
             extrusion = MeshExtrusion(planeSurface, extrusion_value)
             extrusion.define_bc()
         
+        BoundaryCondition.generatePhysicalGroups(2,3)
         gmsh.model.mesh.generate(3)
     else:
+        BoundaryCondition.generatePhysicalGroups(1,2)
         gmsh.model.mesh.generate(2)
 
     # Open user interface of GMSH
