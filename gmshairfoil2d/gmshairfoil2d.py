@@ -6,6 +6,7 @@ import math
 import sys
 import re
 from pathlib import Path
+import numpy as np
 
 import gmsh
 from gmshairfoil2d.airfoil_func import (NACA_4_digit_geom, get_airfoil_points,
@@ -257,12 +258,14 @@ def main():
         offset = AirfoilOffset(airfoil, 0.5, args.airfoil_mesh_size*2, 3)
         offset.gen_skin()
         offset.gen_connection_lines()
-        offset.gen_inner_planeSurfaces()
+        gmsh.model.occ.synchronize()
+        gmsh.fltk.run()
+        offset.gen_inner_planeSurfaces() 
         gmsh.model.occ.synchronize()
         for planeSurface in offset.inner_planeSurfaces:
             planeSurface.define_bc()
-        # offset.set_transfinite()
-
+        offset.set_transfinite()
+        gmsh.fltk.run()
         surface_domain = PlaneSurface([ext_domain, offset])
     else:
         surface_domain = PlaneSurface([ext_domain, airfoil])
@@ -272,50 +275,54 @@ def main():
     ext_domain.define_bc()
     airfoil.define_bc()
     surface_domain.define_bc()
-
+    
     if args.quad: 
         gmsh.option.setNumber("Mesh.Algorithm", 8)
         gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1) 
         gmsh.option.setNumber("Mesh.RecombineAll", 1)
+        
     
+
     # 3D extrusion and meshing
     if args.extrusion:
         extrusion_value = args.extrusion
-        for planeSurface in offset.inner_planeSurfaces:
-            extrusion = MeshExtrusion(planeSurface, extrusion_value)
-            extrusion.define_bc()
+        if offsetTrigger:
+            for planeSurface in offset.inner_planeSurfaces:
+                extrusion = MeshExtrusion(planeSurface, extrusion_value)
+                extrusion.define_bc()
         extrusion = MeshExtrusion(surface_domain, extrusion_value)
         extrusion.define_bc()
-        
-        BoundaryCondition.generatePhysicalGroups(2)
+        BoundaryCondition.generatePhysicalGroups(2,3)
+        gmsh.model.mesh.generate(1)
+        gmsh.model.mesh.generate(2)
         gmsh.model.mesh.generate(3)
     else:
         BoundaryCondition.generatePhysicalGroups(1,2)
         gmsh.model.mesh.generate(2)
 
-    # Notes for hopr file writing:
-    if args.hopr:
-        hoprBC_path = Path(args.output, f"parameter_hopr_{airfoil_name}.ini")
-        with open(hoprBC_path, "w") as file:
-            # Write each line to the file
-            index_periodic_sides = [1,1]
-            for bc in BoundaryCondition.instances:
-                if bc.tag != None and bc.dim == 2:
-                    print(bc.name)
-                    for tag in bc.tag_list:
-                        file.write(f"BoundaryName       = S_{tag} ! BC is {bc.name}\n")   # Add a newline character to separate lines
-                        if bc.name =="side_z-": 
-                            file.write(f"BoundaryType       = (/1,0,0,{index_periodic_sides[0]}/)\n")
-                            index_periodic_sides[0] += 1
-                        elif bc.name =="side_z+":
-                            file.write(f"BoundaryType       = (/1,0,0,-{index_periodic_sides[1]}/)\n")
-                            index_periodic_sides[1] += 1
-                        else:
-                            file.write(f"BoundaryType       = (/-1,-1,0,0/)\n")
-
     # Open user interface of GMSH
     if args.ui:
         gmsh.fltk.run()
+
+    # if args.hopr:
+    #     # hopr file writing:
+    #     hoprBC_path = Path(args.output, f"parameter_hopr_{airfoil_name}.ini")
+    #     with open(hoprBC_path, "w") as file:
+    #         # Write each line to the file
+    #         index_periodic_sides = [1,1]
+    #         for bc in BoundaryCondition.instances:
+    #             if bc.tag != None and bc.dim == 2:
+    #                 print(bc.name)
+    #                 for tag in bc.tag_list:
+    #                     file.write(f"BoundaryName       = S_{tag} ! BC is {bc.name}\n")   # Add a newline character to separate lines
+    #                     if bc.name =="side_z-": 
+    #                         file.write(f"BoundaryType       = (/1,0,0,{index_periodic_sides[0]}/)\n")
+    #                         index_periodic_sides[0] += 1
+    #                     elif bc.name =="side_z+":
+    #                         file.write(f"BoundaryType       = (/1,0,0,-{index_periodic_sides[1]}/)\n")
+    #                         index_periodic_sides[1] += 1
+    #                     else:
+    #                         file.write(f"BoundaryType       = (/-1,-1,0,0/)\n")
 
     # Mesh file name and output
     mesh_path = Path(args.output, f"mesh_airfoil_{airfoil_name}.{args.format}")
