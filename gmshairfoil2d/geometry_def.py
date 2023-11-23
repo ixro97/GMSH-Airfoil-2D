@@ -103,6 +103,19 @@ class Point:
         """
         gmsh.model.occ.translate([(self.dim, self.tag)], *vector)
 
+    def remove(self):
+        """
+        Methode to translate the object Point
+        ...
+
+        Parameters
+        ----------
+        direction : tuple
+            tuple of point (x,y,z) which represent the direction of the translation
+        """
+        gmsh.model.occ.synchronize()
+        gmsh.model.removeEntities([(self.dim, self.tag)])
+
 
 class Line:
     """
@@ -909,110 +922,163 @@ class AirfoilOffset:
             for point in pointSet:
                 print(f"x = {point.x}, y = {point.y}, z = {point.z}")
 
-    def gen_extensionPoints(self, extensionLength, transitionLength):
-        extensions = dict(name = [], posVector = [], tangVector = [], transitionLength = [])
-
-        # Calculate position and tangential vector for upper offset
-        currentPoint = self.upper_offsetSplines['pointSet'][-1][-1]
+    def gen_extensionPoints(self, extensionLength, transitionLength, extension_offset = None):
+        # Calculate tangential vector for upper offset curve
+        startPoint = self.upper_offsetSplines['pointSet'][-1][-1]
         lastPoint = self.upper_offsetSplines['pointSet'][-1][-2]
 
-        tangVector = np.array([currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y, 0])
+        tangVector = np.array([startPoint.x - lastPoint.x, startPoint.y - lastPoint.y, 0])
         tangVector_normalized = tangVector/np.linalg.norm(tangVector)
 
-        extensions['name'].append("upper_offset")
-        extensions['posVector'].append(np.array([currentPoint.x, currentPoint.y, currentPoint.z]))
-        extensions['tangVector'].append(tangVector_normalized)
-        extensions['transitionLength'].append(transitionLength - (currentPoint.x - self.airfoil.te.x))
+        # Generate end point of the upper transition curve (assuring correct transition length relative to the airfoil te)
+        endPoint = self.gen_endPoint(startPoint, tangVector_normalized, transitionLength - (startPoint.x - self.airfoil.te.x), extension_offset)
         
-        # Calculate TE position and tangential vector
-        currentPoint = self.airfoil.te
+        # Perform quadratic bezier interpolation
+        controlPoint = self.gen_controlPoint(startPoint, tangVector_normalized, endPoint)
+        interpolationPoints = self.spline_interpolation(startPoint, controlPoint, endPoint, transitionLength - (startPoint.x - self.airfoil.te.x))
+        controlPoint.remove()
+
+        # Build point set for upper transition curve:
+        pointSet = [startPoint]
+        pointSet.extend(interpolationPoints)
+        pointSet.append(endPoint)
+
+        self.extensionSplines['pointSet'].append(pointSet)
+            
+        # Build point set for upper extension line:
+        startPoint = endPoint
+        endPoint = Point(self.airfoil.te.x + extensionLength, startPoint.y, startPoint.z, self.mesh_size)
+
+        self.extensionLines['pointSet'].append([startPoint, endPoint])
+        
+
+        # Calculate tangential vector for for the airfoil te (average between upper and lower side)
+        startPoint = self.airfoil.te
         lastPoint_SS = self.airfoil.upper_splines['pointSet'][-1][-2]
         lastPoint_PS = self.airfoil.lower_splines['pointSet'][-1][-2]
  
-        tangVector_SS = np.array([currentPoint.x - lastPoint_SS.x, currentPoint.y - lastPoint_SS.y, 0])
+        tangVector_SS = np.array([startPoint.x - lastPoint_SS.x, startPoint.y - lastPoint_SS.y, 0])
         tangVector_SS_normalized = tangVector_SS/np.linalg.norm(tangVector_SS)
 
-        tangVector_te_PS = np.array([currentPoint.x - lastPoint_PS.x, currentPoint.y - lastPoint_PS.y, 0])
+        tangVector_te_PS = np.array([startPoint.x - lastPoint_PS.x, startPoint.y - lastPoint_PS.y, 0])
         tangVector_te_PS_normalized = tangVector_te_PS/np.linalg.norm(tangVector_te_PS)
 
         tangVector_normalized = (tangVector_SS_normalized + tangVector_te_PS_normalized)/np.linalg.norm(tangVector_SS_normalized + tangVector_te_PS_normalized)
 
-        extensions['name'].append("te")
-        extensions['posVector'].append(np.array([currentPoint.x, currentPoint.y, currentPoint.z]))
-        extensions['tangVector'].append(tangVector_normalized)
-        extensions['transitionLength'].append(transitionLength)
+        # Generate end point of the te transition curve
+        endPoint = self.gen_endPoint(startPoint, tangVector_normalized, transitionLength, extension_offset)
+        
+        # Perform quadratic bezier interpolation
+        controlPoint = self.gen_controlPoint(startPoint, tangVector_normalized, endPoint)
+        interpolationPoints = self.spline_interpolation(startPoint, controlPoint, endPoint, transitionLength)
+        controlPoint.remove()
+
+        # Build point set for te transition curve
+        pointSet = [startPoint]
+        pointSet.extend(interpolationPoints)
+        pointSet.append(endPoint)
+
+        self.extensionSplines['pointSet'].append(pointSet)
+            
+        # Build point set for te extension line
+        startPoint = endPoint
+        endPoint = Point(self.airfoil.te.x + extensionLength, startPoint.y, startPoint.z, self.mesh_size)
+
+        self.extensionLines['pointSet'].append([startPoint, endPoint])
+
 
         # Calculate position and tangential vector for upper offset
-        currentPoint = self.lower_offsetSplines['pointSet'][-1][-1]
+        startPoint = self.lower_offsetSplines['pointSet'][-1][-1]
         lastPoint = self.lower_offsetSplines['pointSet'][-1][-2]
 
-        tangVector = np.array([currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y, 0])
+        tangVector = np.array([startPoint.x - lastPoint.x, startPoint.y - lastPoint.y, 0])
         tangVector_normalized = tangVector/np.linalg.norm(tangVector)
 
-        extensions['name'].append("lower_offset")
-        extensions['posVector'].append(np.array([currentPoint.x, currentPoint.y, currentPoint.z]))
-        extensions['tangVector'].append(tangVector_normalized)
-        extensions['transitionLength'].append(transitionLength - (currentPoint.x - self.airfoil.te.x))
-
-        for index, name in enumerate(extensions['name']):
-            posVector_control = self.calculate_posVectors(extensions['posVector'][index], extensions['tangVector'][index], extensions['transitionLength'][index])
+        # Generate end point of the lower transition curve (assuring correct transition length relative to the airfoil te)
+        endPoint = self.gen_endPoint(startPoint, tangVector_normalized, transitionLength - (startPoint.x - self.airfoil.te.x), extension_offset)
         
-            print(extensions['transitionLength'][index])
+        # Perform quadratic bezier interpolation
+        controlPoint = self.gen_controlPoint(startPoint, tangVector_normalized, endPoint)
+        interpolationPoints = self.spline_interpolation(startPoint, controlPoint, endPoint, transitionLength - (startPoint.x - self.airfoil.te.x))
+        controlPoint.remove()
 
-            extensionPoints = [Point(posVector_control[0][0], posVector_control[0][1], posVector_control[0][2], self.mesh_size)]
-            extensionPoints.extend(self.spline_interpolation(posVector_control[0], posVector_control[1], posVector_control[2], extensions['transitionLength'][index]))
-            extensionPoints.append(Point(posVector_control[2][0], posVector_control[2][1], posVector_control[2][2], self.mesh_size))
-            self.extensionSplines['pointSet'].append(extensionPoints)
+        # Build point set for lower transition curve
+        pointSet = [startPoint]
+        pointSet.extend(interpolationPoints)
+        pointSet.append(endPoint)
+
+        self.extensionSplines['pointSet'].append(pointSet)
             
-            # Generate extension line points
-            endPoint_extensionLine = Point(self.airfoil.te.x + extensionLength, extensionPoints[-1].y, extensionPoints[-1].z, self.mesh_size)
-            self.extensionLines['pointSet'].append([extensionPoints[-1], endPoint_extensionLine])
+        # Build point set for lower extension line
+        startPoint = endPoint
+        endPoint = Point(self.airfoil.te.x + extensionLength, startPoint.y, startPoint.z, self.mesh_size)
 
-    def calculate_posVectors(self, posVector_start, tangVector_start, transitionLength):
+        self.extensionLines['pointSet'].append([startPoint, endPoint])          
+
+        print("Splines")
+        for pointSet in self.extensionSplines['pointSet']:
+            for point in pointSet:
+                print(f"x = {point.x}, y = {point.y}, z = {point.z}")
+            print()
+
+        print("Lines")
+        for pointSet in self.extensionLines['pointSet']:
+            for point in pointSet:
+                print(f"x = {point.x}, y = {point.y}, z = {point.z}")
+            print()
+
+    def gen_endPoint(self, startPoint, tangVector, transitionLength, transitionOffset = None):
         # Define or calculate the position vectors
-        posVectors = [posVector_start]
-        if tangVector_start[0]/tangVector_start[1] > 0:
-            posVectors.append(np.array([posVectors[0][0] + tangVector_start[0]/tangVector_start[1]*transitionLength*(-tangVector_start[0]/tangVector_start[1] + np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)), 
-                                        posVectors[0][1] + transitionLength*(-tangVector_start[0]/tangVector_start[1] + np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)),
-                                        0]))
-            posVectors.append(np.array([posVectors[0][0] + transitionLength,
-                                        posVectors[0][1] + transitionLength*(-tangVector_start[0]/tangVector_start[1] + np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)),
-                                        0]))
-        elif tangVector_start[0]/tangVector_start[1] < 0:
-            posVectors.append(np.array([posVectors[0][0] + tangVector_start[0]/tangVector_start[1]*transitionLength*(-tangVector_start[0]/tangVector_start[1] - np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)), 
-                                        posVectors[0][1] + transitionLength*(-tangVector_start[0]/tangVector_start[1] - np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)),
-                                        0]))
-            posVectors.append(np.array([posVectors[0][0] + transitionLength,
-                                        posVectors[0][1] + transitionLength*(-tangVector_start[0]/tangVector_start[1] - np.sqrt(1 + (tangVector_start[0]/tangVector_start[1])**2)),
-                                        0]))
-        
-        print(f"P0: {posVectors[0]}")
-        print(f"P1: {posVectors[1]}")
-        print(f"P2: {posVectors[2]}")
+        if(transitionOffset is None):
+            if tangVector[0]/tangVector[1] > 0:
+                endPoint_x = startPoint.x + transitionLength
+                endPoint_y = startPoint.y + transitionLength*(-tangVector[0]/tangVector[1] + np.sqrt(1 + (tangVector[0]/tangVector[1])**2))
+                endPoint_z = 0
+            elif tangVector[0]/tangVector[1] < 0:
+                endPoint_x = startPoint.x + transitionLength
+                endPoint_y = startPoint.y + transitionLength*(-tangVector[0]/tangVector[1] - np.sqrt(1 + (tangVector[0]/tangVector[1])**2))
+                endPoint_z = 0
+        else:
+            endPoint_x = startPoint.x + transitionLength
+            endPoint_y = startPoint.y + transitionOffset
+            endPoint_z = 0
 
-        return posVectors
+        endPoint = Point(endPoint_x, endPoint_y, endPoint_z, self.mesh_size)
+
+        print(f"Created end point for spline transition: x = {endPoint.x}, y = {endPoint.y}, z = {endPoint.z}")
+
+        return endPoint
+    
+    def gen_controlPoint(self, startPoint, tangVector, endPoint):
+        controlPoint_x = startPoint.x + tangVector[0]/tangVector[1]*(endPoint.y - startPoint.y)
+        controlPoint_y = endPoint.y
+        controlPoint_z = 0
+
+        controlPoint = Point(controlPoint_x, controlPoint_y, controlPoint_z, self.mesh_size)
+
+        print(f"Created control point for spline transition: x = {controlPoint.x}, y = {controlPoint.y}, z = {controlPoint.z}")
+
+        return controlPoint
  
-    def spline_interpolation(self, posVector_start, posVector_connection, posVector_end, transitionLength):
+    def spline_interpolation(self, startPoint, controlPoint, endPoint, transitionLength):
+        startVector = np.array([startPoint.x, startPoint.y, startPoint.z])
+        controlVector = np.array([controlPoint.x, controlPoint.y, controlPoint.z])
+        endVector = np.array([endPoint.x, endPoint.y, endPoint.z])
+
+        interpolationPoints = []
+
         # Performing spline interpolation on <n_interpolation> points
-        
-        interpolationPointSet = []
         n_interpolation = round(20*transitionLength)
-        posVector_interPoint = []
+        
         for n in range(n_interpolation - 1):
             # Kurvenparameter
             t = (n+1)*1/n_interpolation
             
             # Quadratic Bezier
-            interpolationPoint = (1 - t)**2*posVector_start + 2*(1 - t)*t*posVector_connection + t**2*posVector_end
-            interpolationPointSet.append(Point(interpolationPoint[0], interpolationPoint[1], interpolationPoint[2], self.mesh_size))
-
-            # # Cubic Hemite Spline with tangential vectors scaled by the extension length
-            # posVector_interPoint = (2*t**3 - 3*t**2 + 1)*posVector_transStart           \
-            #                         + (t**3 - 2*t**2 + t)*tangVector_start*transitionLength    \
-            #                         + (-2*t**3 + 3*t**2)*posVector_transEnd                \
-            #                         + (t**3 - t**2)*tangVector_end*transitionLength
+            interpolationPoint = (1 - t)**2*startVector + 2*(1 - t)*t*controlVector + t**2*endVector
+            interpolationPoints.append(Point(interpolationPoint[0], interpolationPoint[1], interpolationPoint[2], self.mesh_size))
         
-        return interpolationPointSet
+        return interpolationPoints
 
     def gen_skin(self):
         # Create the Splines depending on the le and te location in point_cloud
