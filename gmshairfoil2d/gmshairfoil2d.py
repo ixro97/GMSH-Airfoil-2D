@@ -258,14 +258,11 @@ def main():
         offset = AirfoilOffset(airfoil, 0.5, args.airfoil_mesh_size*2, 3)
         offset.gen_skin()
         offset.gen_connection_lines()
-        gmsh.model.occ.synchronize()
-        gmsh.fltk.run()
-        offset.gen_inner_planeSurfaces() 
-        gmsh.model.occ.synchronize()
+        offset.gen_inner_planeSurfaces()
         for planeSurface in offset.inner_planeSurfaces:
             planeSurface.define_bc()
         offset.set_transfinite()
-        gmsh.fltk.run()
+        
         surface_domain = PlaneSurface([ext_domain, offset])
     else:
         surface_domain = PlaneSurface([ext_domain, airfoil])

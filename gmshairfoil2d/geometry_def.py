@@ -862,7 +862,6 @@ class AirfoilOffset:
             self.upper_offsetSplines["name"].append(self.airfoil.upper_splines['name'][index_pointSet])
             self.upper_offsetSplines["pointSet"].append(offsetPointSet)
 
-
         for index_pointSet, pointSet in enumerate(self.airfoil.lower_splines['pointSet']):
             offsetPointSet = []
 
@@ -873,18 +872,8 @@ class AirfoilOffset:
 
             for index_point, point in enumerate(pointSet):
                 if point is self.airfoil.le:
-                    upperPoint = self.airfoil.upper_splines['pointSet'][0][1]
-                    lowerPoint = self.airfoil.lower_splines['pointSet'][0][1]
-
-                    vector_lowerPoint = np.array([lowerPoint.x - point.x, lowerPoint.y - point.y, 0])
-                    vector_lowerPoint_normalized = vector_lowerPoint/np.linalg.norm(vector_lowerPoint)
-                    vector_normal_lowerPoint = np.cross(vector_lowerPoint_normalized, vector_z)
-
-                    vector_upperPoint = np.array([upperPoint.x - point.x, upperPoint.y - point.y, 0])
-                    vector_upperPoint_normalized = vector_upperPoint/np.linalg.norm(vector_upperPoint)
-                    vector_normal_upperPoint = np.cross(vector_z, vector_upperPoint_normalized)
-
-                    vector_normal = (vector_normal_lowerPoint + vector_normal_upperPoint)/np.linalg.norm(vector_normal_lowerPoint + vector_normal_upperPoint)
+                    offsetPointSet.append(self.upper_offsetSplines["pointSet"][0][0])
+                    continue
                 elif point is self.airfoil.te:
                     lastPoint = pointSet[index_point - 1]
 
@@ -1096,7 +1085,7 @@ class AirfoilOffset:
 
     def gen_connection_lines(self):
 
-        # Generate surface normal lines for transfinite mesh
+        # Generate surface normal lines for transfinite mesh (upper_connection_lines contains the line on the airfoil le)
         self.upper_connection_lines.append(Line(self.airfoil.upper_splines['pointSet'][0][0], self.upper_offsetSplines['pointSet'][0][0]))
         for index_pointSets, offset_pointSet in enumerate(self.upper_offsetSplines["pointSet"]):
             airfoil_pointSet = self.airfoil.upper_splines['pointSet'][index_pointSets]
@@ -1104,7 +1093,7 @@ class AirfoilOffset:
         self.upper_connection_lines.append(Line(self.extensionSplines['pointSet'][1][-1], self.extensionSplines['pointSet'][0][-1]))
         self.upper_connection_lines.append(Line(self.extensionLines['pointSet'][1][-1], self.extensionLines['pointSet'][0][-1]))
 
-        self.lower_connection_lines.append(Line(self.airfoil.upper_splines['pointSet'][0][0], self.upper_offsetSplines['pointSet'][0][0]))
+        self.lower_connection_lines.append(self.upper_connection_lines[0])
         for index_pointSets, offset_pointSet in enumerate(self.lower_offsetSplines["pointSet"]):
             airfoil_pointSet = self.airfoil.lower_splines['pointSet'][index_pointSets]
             self.lower_connection_lines.append(Line(airfoil_pointSet[len(airfoil_pointSet) - 1], offset_pointSet[len(offset_pointSet) - 1]))
@@ -1232,9 +1221,9 @@ class AirfoilOffset:
 
         # Set and recombine transfinite surfaces
         for surface in self.inner_planeSurfaces:
-            gmsh.model.mesh.setTransfiniteSurface(surface)
-            gmsh.model.mesh.setRecombine(2, surface)
-            # gmsh.model.mesh.setSmoothing(2, surface, 20)
+            gmsh.model.mesh.setTransfiniteSurface(surface.tag)
+            gmsh.model.mesh.setRecombine(2, surface.tag)
+            # gmsh.model.mesh.setSmoothing(2, surface.tag, 100)
 
 
 class PlaneSurface:
