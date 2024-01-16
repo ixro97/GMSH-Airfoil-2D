@@ -1098,7 +1098,7 @@ class Airfoil:
 
         if self.extensionSplines:
             self.extensionSplines[0].setTransfinite(startMeshSize = self.meshSize, endMeshSize = self.meshSize)
-            self.extensionSplines[1].setTransfinite(startMeshSize = self.extensionSplines[0].endMeshSize, endMeshSize = 4*self.extensionSplines[1].length*self.extensionSplines[0].endMeshSize)
+            self.extensionSplines[1].setTransfinite(startMeshSize = self.extensionSplines[0].endMeshSize, endMeshSize = 20*self.extensionSplines[1].length*self.extensionSplines[0].endMeshSize)
 
 class AirfoilStructuredRegion:
     def __init__(self, airfoil, offsetValue, extensionLength, transitionLength, conicalWakeAngle):
@@ -1229,7 +1229,6 @@ class AirfoilStructuredRegion:
         print(f"Boundary layer parameter:   y+Wall = {deltaYWall/2}, delta = {boundaryLayerThickness}, growth rate = {growthRate}")
 
         deltaYWall = deltaYWall*(N+1)
-        print(f"Boundary layer parameter:   y+Wall = {deltaYWall/2}, delta = {boundaryLayerThickness}, growth rate = {growthRate}")
 
         for airfoilSpline in self.airfoil.splines:
             for controlSpline in airfoilSpline.controlSplines:

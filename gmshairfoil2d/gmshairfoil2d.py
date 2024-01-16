@@ -290,7 +290,7 @@ def main():
     offset = None
     # Generate domain
     if offsetTrigger:
-        offset = AirfoilStructuredRegion(airfoil, 0.05, 10, 0.1, 10)
+        offset = AirfoilStructuredRegion(airfoil, 0.05, 10, 0.1, 20)
         for planeSurface in offset.planeSurfaces:
             planeSurface.define_bc()
 
