@@ -263,7 +263,6 @@ def main():
         extMeshSize = 2*extMeshSize
         blayer_size = 2*blayer_size
         gmsh.option.setNumber("Mesh.Algorithm", 8)
-        gmsh.option.setNumber("Mesh.Algorithm3D", 10)
         gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1) 
         gmsh.option.setNumber("Mesh.RecombineAll", 1)
         if args.extrusion:
@@ -291,7 +290,7 @@ def main():
     offset = None
     # Generate domain
     if offsetTrigger:
-        offset = AirfoilStructuredRegion(airfoil, 0.5, 3, 0.5, 5)
+        offset = AirfoilStructuredRegion(airfoil, 0.05, 10, 0.1, 10)
         for planeSurface in offset.planeSurfaces:
             planeSurface.define_bc()
 
@@ -310,12 +309,14 @@ def main():
         meshOrder = args.high_order
         print(f"Polynomial degree: {meshOrder}")
         gmsh.option.setNumber("Mesh.ElementOrder", meshOrder)    
-        gmsh.option.setNumber("Mesh.HighOrderOptimize", 1)
+        # gmsh.option.setNumber("Mesh.HighOrderOptimize", 1)
+    else:
+        meshOrder = 1
 
     # Mesh settings
     airfoil.setTransfinite()
     if offsetTrigger:
-        offset.setTransfinite(blayer_size, blayer_thickness, 5)
+        offset.setTransfinite(blayer_size, blayer_thickness, meshOrder)
     
     # 3D extrusion and meshing
     if args.extrusion:

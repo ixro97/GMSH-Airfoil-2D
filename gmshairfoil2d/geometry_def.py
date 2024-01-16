@@ -358,7 +358,7 @@ class Spline(metaclass=InstanceTracker):
     def generate(self):
         self.tag = gmsh.model.occ.addSpline(self.tag_list)
 
-    def setTransfinite(self, startMeshSize = None, endMeshSize = None, nPnts = None, growthRate = None):
+    def setTransfinite(self, startMeshSize = None, endMeshSize = None, nPnts = None, growthRate = None, meshType = "Progression"):
         if startMeshSize != None and endMeshSize != None:
             growthRate = (self.length - startMeshSize)/(self.length - endMeshSize)
 
@@ -438,7 +438,7 @@ class Spline(metaclass=InstanceTracker):
             self.endMeshSize = startMeshSize*growthRate**nPnts
             self.nTransfinitePoints = nPnts
 
-        gmsh.model.mesh.setTransfiniteCurve(self.tag, self.nTransfinitePoints, "Progression", growthRate)
+        gmsh.model.mesh.setTransfiniteCurve(self.tag, self.nTransfinitePoints, meshType, growthRate)
 
     @staticmethod
     def get(points):
@@ -1084,35 +1084,6 @@ class Airfoil:
         if not any(spline.tag is None for spline in self.splines):
             extensionSpline.generate()
 
-        # for spline in self.splines:
-        #     if self.topPointTE in spline.points:
-        #         pointTE = self.topPointTE
-        #         idxTE = self.points.index(pointTE)
-        #         lastPoint = self.points[idxTE - 1]
-        #     elif self.botPointTE in spline.points:
-        #         pointTE = self.botPointTE
-        #         idxTE = self.points.index(pointTE)
-        #         lastPoint = self.points[idxTE + 1]
-        #     else:
-        #         continue
-
-        #     tangVector = np.array([pointTE.x - lastPoint.x, pointTE.y - lastPoint.y, 0])
-        #     tangVector_normalized = tangVector/np.linalg.norm(tangVector)
-            
-
-        #     endPoint = self.gen_endPoint(pointTE, tangVector_normalized, transitionLength - (pointTE.x - self.airfoil.pointTE.x), extension_offset)
-
-        #     controlPoint = self.gen_controlPoint(pointTE, tangVector_normalized, endPoint)
-        #     interpolationPoints = self.spline_interpolation(pointTE, controlPoint, endPoint, transitionLength - (pointTE.x - self.airfoil.pointTE.x))
-
-        #     # Build point set for upper transition curve:
-        #     self.extensionSplines.append(Spline([pointTE] + interpolationPoints + [endPoint]))
-                
-        #     # Build point set for upper extension line:
-        #     startPoint = endPoint
-        #     endPoint = Point(self.airfoil.pointTE.x + extensionLength, startPoint.y, startPoint.z, self.mesh_size)
-        #     self.extensionLines.append(Line(startPoint, endPoint))
-
     def generate(self):
         for spline in self.splines:
             spline.generate()
@@ -1126,8 +1097,8 @@ class Airfoil:
                 spline.setTransfinite(startMeshSize = self.meshSize, endMeshSize = self.meshSize)
 
         if self.extensionSplines:
-            self.extensionSplines[0].setTransfinite(startMeshSize = self.meshSize, endMeshSize = 3*self.meshSize)
-            self.extensionSplines[1].setTransfinite(startMeshSize = self.extensionSplines[0].endMeshSize, endMeshSize = 3*self.extensionSplines[0].endMeshSize)
+            self.extensionSplines[0].setTransfinite(startMeshSize = self.meshSize, endMeshSize = self.meshSize)
+            self.extensionSplines[1].setTransfinite(startMeshSize = self.extensionSplines[0].endMeshSize, endMeshSize = 4*self.extensionSplines[1].length*self.extensionSplines[0].endMeshSize)
 
 class AirfoilStructuredRegion:
     def __init__(self, airfoil, offsetValue, extensionLength, transitionLength, conicalWakeAngle):
@@ -1254,8 +1225,11 @@ class AirfoilStructuredRegion:
 
     def setTransfinite(self, deltaYWall, boundaryLayerThickness, N):
         # Face normal transfinite mesh settings
-        growthRate = (boundaryLayerThickness - deltaYWall/2/(N+1))/(boundaryLayerThickness - 10*deltaYWall/2/(N+1))
-        print(f"Boundary layer parameter:   y+Wall = {deltaYWall}, delta = {boundaryLayerThickness}, growth rate = {growthRate}")
+        growthRate = ((boundaryLayerThickness - deltaYWall/2)/(boundaryLayerThickness - 10*deltaYWall/2))**(1.5*N)
+        print(f"Boundary layer parameter:   y+Wall = {deltaYWall/2}, delta = {boundaryLayerThickness}, growth rate = {growthRate}")
+
+        deltaYWall = deltaYWall*(N+1)
+        print(f"Boundary layer parameter:   y+Wall = {deltaYWall/2}, delta = {boundaryLayerThickness}, growth rate = {growthRate}")
 
         for airfoilSpline in self.airfoil.splines:
             for controlSpline in airfoilSpline.controlSplines:
@@ -1388,16 +1362,13 @@ class MeshExtrusion:
         self.numElements = numElements
 
         self.tagList2D = [entity[1] for entity in gmsh.model.occ.getEntities(1)]
-        print(self.tagList2D)
         dimtags = []
         for planeSurface in plane_surfaces:
             dimtags.append((planeSurface.dim,planeSurface.tag))
 
-        print(f"Extrude: {dimtags}")
         self.extrude_dimtags = gmsh.model.occ.extrude(dimtags, 0, 0, extrusion_value, [self.numElements], [1], recombine = True)
         gmsh.model.occ.synchronize()
         self.bcs =[]
-        print(self.extrude_dimtags)
 
     def define_bc(self):
         """
@@ -1411,7 +1382,6 @@ class MeshExtrusion:
             currentBC.name = "side_z-"
 
         for extrude_dimtag in self.extrude_dimtags:
-            print(f"{extrude_dimtag} -> {gmsh.model.getBoundary([extrude_dimtag], combined=True, oriented=False, recursive=False)}")
             if extrude_dimtag[0] == 3:
                 bc_name, bc_dim = "fluid", 3
                 bc_entities = [extrude_dimtag[1]]
@@ -1420,7 +1390,6 @@ class MeshExtrusion:
                 bc_entities = [extrude_dimtag[1]]
             else:
                 for bc in BoundaryCondition.instances:
-                    print(bc.tag_list, bc.dim)
                     if gmsh.model.getBoundary([extrude_dimtag], combined=True, oriented=False, recursive=False)[0][1] in bc.tag_list and bc.dim == 1:
                         bc_name, bc_dim = bc.name, 2
                         bc_entities = [extrude_dimtag[1]]
