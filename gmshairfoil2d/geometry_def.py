@@ -1098,7 +1098,7 @@ class Airfoil:
 
         if self.extensionSplines:
             self.extensionSplines[0].setTransfinite(startMeshSize = self.meshSize, endMeshSize = self.meshSize)
-            self.extensionSplines[1].setTransfinite(startMeshSize = self.extensionSplines[0].endMeshSize, endMeshSize = 20*self.extensionSplines[1].length*self.extensionSplines[0].endMeshSize)
+            self.extensionSplines[1].setTransfinite(startMeshSize = self.extensionSplines[0].endMeshSize, endMeshSize = self.extensionSplines[1].length/10*2)
 
 class AirfoilStructuredRegion:
     def __init__(self, airfoil, offsetValue, extensionLength, transitionLength, conicalWakeAngle):
