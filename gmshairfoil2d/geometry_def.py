@@ -6,466 +6,33 @@ from operator import attrgetter
 import gmsh
 import numpy as np
 import math
+from gmshairfoil2d.Utils import InstanceTracker
+from gmshairfoil2d.basicGoemetry import (Point, Line, Spline, AirfoilSpline, 
+                                         ExtensionSpline, Circle, CircleArc,
+                                         Rectangle)
 
-class InstanceTracker(type):
-    def __init__(cls, name, bases, attrs):
-        super().__init__(name, bases, attrs)
-        cls.instances = []
-
-    def __call__(cls, *args, **kwargs):
-        instance = super().__call__(*args, **kwargs)
-        cls.instances.append(instance)
-        return instance
-    
-
-class Point(metaclass=InstanceTracker):
-    """
-    A class to represent the point geometrical object of gmsh
-
-    ...
-
-    Attributes
-    ----------
-    x : float
-        position in x
-    y : float
-        position in y
-    z : float
-        position in z
-    mesh_size : float
-        If mesh_size is > 0, add a meshing constraint
-            at that point
-    """
-
-    def __init__(self, x, y, z, mesh_size=None):
-
-        self.x = x
-        self.y = y
-        self.z = z
-
-        self.mesh_size = mesh_size
-        self.dim = 0
-
-        # create the gmsh object and store the tag of the geometric object
-        if mesh_size != None:
-            self.tag = gmsh.model.occ.addPoint(self.x, self.y, self.z, self.mesh_size)
-        else:
-            self.tag = gmsh.model.occ.addPoint(self.x, self.y, self.z, 0.1)
-
-    def rotation(self, angle, origin, axis):
+class ExternalDomain:
+    def __init__(self) -> None:
+        pass
+    def close_loop(self):
         """
-        Methode to rotate the object Point
-        ...
+        Method to form a close loop with the current geometrical object
 
-        Parameters
-        ----------
-        angle : float
-            angle of rotation in rad
-        origin : tuple
-            tuple of point (x,y,z) which is the origin of the rotation
-        axis : tuple
-            tuple of point (x,y,z) which represent the axis of rotation
+        Returns
+        -------
+        _ : int
+            return the tag of the CurveLoop object
+        """
+        return gmsh.model.occ.addCurveLoop([self.tag])
+
+    def define_bc(self):
+        """
+        Method that define the marker of the circle
+        for the boundary condition
+        -------
         """
 
-        # Define needed vectors
-        posVector = np.array([self.x, self.y, self.z])
-        axisVector = np.array([axis[0], axis[1], axis[2]])
-        axisVector_normalized = axisVector/np.linalg.norm(axisVector)
-        originVector = np.array([origin[0], origin[1], origin[2]])
-
-        # Perform the rotation using the rotation matrix (Rodrigues' rotation formula)
-        posVector_rotated = originVector + ((posVector - originVector)*math.cos(angle)                                     \
-                            + np.cross(axisVector_normalized, posVector - originVector)*math.sin(angle)                    \
-                            + axisVector_normalized*np.dot(axisVector_normalized, (posVector - originVector))*(1 - math.cos(angle)))
-        
-        # Assign the rotated vector components to the point.<coordinates>
-        self.x = round(posVector_rotated[0], 12)
-        self.y = round(posVector_rotated[1], 12)
-        self.z = round(posVector_rotated[2], 12)
-
-        # Rotate the point in the gmsh model
-        gmsh.model.occ.rotate(
-            [(self.dim, self.tag)],
-            *origin,
-            *axis,
-            angle,
-        )
-
-    def translation(self, vector):
-        """
-        Methode to translate the object Point
-        ...
-
-        Parameters
-        ----------
-        direction : tuple
-            tuple of point (x,y,z) which represent the direction of the translation
-        """
-        gmsh.model.occ.translate([(self.dim, self.tag)], *vector)
-
-    def remove(self):
-        """
-        Methode to translate the object Point
-        ...
-
-        Parameters
-        ----------
-        direction : tuple
-            tuple of point (x,y,z) which represent the direction of the translation
-        """
-        gmsh.model.occ.synchronize()
-        gmsh.model.removeEntities([(self.dim, self.tag)])
-
-    @staticmethod
-    def interpolate(x, lastpoint, nextPoint, type):
-        if type == "linear2D":
-            y = lastpoint.y + (nextPoint.y - lastpoint.y)/(nextPoint.x - lastpoint.x)*(x - lastpoint.x)
-            print(f"{lastpoint.x} < x = {x} < {nextPoint.x}  ->  y = {y}")
-            resultingPoint = Point(x, y, 0)
-        
-        return resultingPoint
-
-
-class Line(metaclass=InstanceTracker):
-    """
-    A class to represent the Line geometrical object of gmsh
-
-    ...
-
-    Attributes
-    ----------
-    start_point : Point
-        first point of the line
-    end_point : Point
-        second point of the line
-    """
-
-    def __init__(self, start_point, end_point):
-        self.points = [start_point, end_point]
-
-        self.dim = 1
-        self.length = self.calcLength()
-
-        # create the gmsh object and store the tag of the geometric object
-        self.tag = None
-
-    def rotation(self, angle, origin, axis):
-        """
-        Methode to rotate the object Line
-        ...
-
-        Parameters
-        ----------
-        angle : float
-            angle of rotation in rad
-        origin : tuple
-            tuple of point (x,y,z) which is the origin of the rotation
-        axis : tuple
-            tuple of point (x,y,z) which represent the axis of rotation
-        """
-        if self.tag != None:
-            gmsh.model.occ.rotate(
-                [(self.dim, self.tag)],
-                *origin,
-                *axis,
-                angle,
-            )
-        else:
-            [point.rotation(angle, origin, axis) for point in self.points]
-
-    def translation(self, vector):
-        """
-        Methode to translate the object Line
-        ...
-
-        Parameters
-        ----------
-        direction : tuple
-            tuple of point (x,y,z) which represent the direction of the translation
-        """
-        if self.tag != None:
-            gmsh.model.occ.translate([(self.dim, self.tag)], *vector)
-        else:
-            [point.translation(vector) for point in self.points]
-
-    def calcLength(self):
-        length = math.sqrt((self.points[1].x - self.points[0].x)**2 + (self.points[1].y - self.points[0].y)**2 + (self.points[1].z - self.points[0].z)**2)
-
-        return length
-    
-    def generate(self):
-        self.tag = gmsh.model.occ.addLine(self.points[0].tag, self.points[1].tag)
-
-    def setTransfinite(self, startMeshSize = None, endMeshSize = None, nPnts = None, growthRate = None):
-        if startMeshSize != None and endMeshSize != None:
-            growthRate = (self.length - startMeshSize)/(self.length - endMeshSize)
-
-            self.startMeshSize = startMeshSize
-            self.endMeshSize = endMeshSize
-
-            if growthRate == 1:
-                self.nTransfinitePoints = round(self.length/startMeshSize - 1)
-            else:
-                self.nTransfinitePoints = round(math.log(endMeshSize/startMeshSize, growthRate) + 1)
-
-        elif nPnts != None and growthRate != None:
-            if growthRate == 1:
-                self.startMeshSize = self.length / (nPnts + 1)
-            else:
-                self.startMeshSize = self.length * (growthRate - 1)/(growthRate**(nPnts + 1) - 1)
-            self.endMeshSize = self.startMeshSize * growthRate**(nPnts)
-            self.nTransfinitePoints = nPnts
-
-        elif endMeshSize != None and nPnts != None:
-            # Estimator for progression factor:
-            estimatedLength = 0
-            growthRate = 1
-            toleranceLen = 0.01
-            direction = 0
-            exponent = 0
-            while math.fabs(self.length - estimatedLength) > self.length*toleranceLen:
-                if growthRate == 1:
-                    estimatedLength = endMeshSize * (nPnts + 1)
-                else:                
-                    estimatedLength = endMeshSize * (growthRate**(nPnts + 1) - 1)/(growthRate**(nPnts + 1) - growthRate**(nPnts))
-
-                if self.length < estimatedLength and direction != 1:
-                    exponent += 1
-                    direction = 1
-                elif self.length > estimatedLength and direction != -1:
-                    exponent += 1
-                    direction = -1
-                elif self.length == estimatedLength: break
-                
-                growthRate += direction*10**(-exponent)
-
-            self.startMeshSize = endMeshSize/growthRate**nPnts
-            self.endMeshSize = endMeshSize
-            self.nTransfinitePoints = nPnts
-            
-        elif startMeshSize != None and nPnts != None:
-            # Estimator for progression factor:
-            estimatedLength = 0
-            growthRate = 1
-            toleranceLen = 0.01
-            direction = 0
-            exponent = 0
-            while math.fabs(self.length - estimatedLength) > self.length*toleranceLen:
-                if growthRate == 1:
-                    estimatedLength = startMeshSize * (nPnts + 1)
-                else:                
-                    estimatedLength = startMeshSize * (growthRate**(nPnts + 1) - 1)/(growthRate - 1)
-
-                if self.length > estimatedLength and direction != 1:
-                    exponent += 1
-                    direction = 1
-                elif self.length < estimatedLength and direction != -1:
-                    exponent += 1
-                    direction = -1
-                elif self.length == estimatedLength: break
-                
-                growthRate += direction*10**(-exponent)
-
-            self.startMeshSize = startMeshSize
-            self.endMeshSize = startMeshSize*growthRate**nPnts
-            self.nTransfinitePoints = nPnts
-
-        gmsh.model.mesh.setTransfiniteCurve(self.tag, self.nTransfinitePoints, "Progression", growthRate)
-
-
-class Spline(metaclass=InstanceTracker):
-    """
-    A class to represent the Spine geometrical object of gmsh
-
-    ...
-
-    Attributes
-    ----------
-    points_list : list(Point)
-        list of Point object forming the Spline
-    """
-
-    def __init__(self, points):
-        self.points = points
-        self.length = self.calcLength()
-
-        # generate the Lines tag list to follow
-        self.tag_list = [point.tag for point in self.points]
-        self.dim = 1
-        # create the gmsh object and store the tag of the geometric object
-        self.tag = None
-
-        self.nTransfinitePoints = None
-        self.startMeshSize = None
-        self.endMeshSize = None
-
-    def rotation(self, angle, origin, axis):
-        """
-        Methode to rotate the object Spline
-
-        Rotate the spline itself (curve, starpoint,endpoint), then rotate the indermediate points
-        ...
-
-        Parameters
-        ----------
-        angle : float
-            angle of rotation in rad
-        origin : tuple
-            tuple of point (x,y,z) which is the origin of the rotation
-        axis : tuple
-            tuple of point (x,y,z) which represent the axis of rotation
-        """
-        if self.tag != None:
-            [
-                point.rotation(angle, origin, axis)
-                for point in self.points[1:-1]
-            ]
-            gmsh.model.occ.rotate(
-                [(self.dim, self.tag)],
-                *origin,
-                *axis,
-                angle,
-            )
-        else:
-            [point.rotation(angle, origin, axis) for point in self.points]
-        
-    def translation(self, vector):
-        """
-        Methode to translate the object Line
-
-        Translate the spline itself (curve, starpoint,endpoint), then translate the indermediate points
-        ...
-
-        Parameters
-        ----------
-        direction : tuple
-            tuple of point (x,y,z) which represent the direction of the translation
-        """
-        gmsh.model.occ.translate([(self.dim, self.tag)], *vector)
-        [interm_point.translation(vector) for interm_point in self.points[1:-1]]
-
-    def calcLength(self):
-        length = 0
-
-        for i in range(len(self.points) - 1):
-            currentPoint = self.points[i]
-            nextPoint = self.points[i + 1]
-
-            length += math.sqrt((nextPoint.x - currentPoint.x)**2 + (nextPoint.y - currentPoint.y)**2 + (nextPoint.z - currentPoint.z)**2)
-
-        return length
-
-    def generate(self):
-        self.tag = gmsh.model.occ.addSpline(self.tag_list)
-
-    def setTransfinite(self, startMeshSize = None, endMeshSize = None, nPnts = None, growthRate = None, meshType = "Progression"):
-        if startMeshSize != None and endMeshSize != None:
-            growthRate = (self.length - startMeshSize)/(self.length - endMeshSize)
-
-            self.startMeshSize = startMeshSize
-            self.endMeshSize = endMeshSize
-            
-            print(self.length,self.startMeshSize,self.endMeshSize,growthRate)
-            if growthRate == 1:
-                self.nTransfinitePoints = round(self.length/startMeshSize + 1)
-            else:
-                self.nTransfinitePoints = round(math.log(endMeshSize/startMeshSize, growthRate) + 1) + 1
-
-        elif nPnts != None and growthRate != None:
-            if growthRate == 1:
-                self.startMeshSize = self.length / (nPnts + 1)
-            else:
-                self.startMeshSize = self.length * (growthRate - 1)/(growthRate**(nPnts + 1) - 1)
-            self.endMeshSize = self.startMeshSize * growthRate**(nPnts)
-            self.nTransfinitePoints = nPnts
-
-        elif startMeshSize != None and growthRate != None:
-            self.startMeshSize = startMeshSize
-            self.endMeshSize = self.length - (self.length - self.startMeshSize)/growthRate
-            self.nTransfinitePoints = round(math.log(self.endMeshSize/self.startMeshSize, growthRate) + 1) + 1
-
-        elif endMeshSize != None and nPnts != None:
-            # Estimator for progression factor:
-            estimatedLength = 0
-            growthRate = 1
-            toleranceLen = 0.001
-            direction = 0
-            exponent = 0
-            while math.fabs(self.length - estimatedLength) > self.length*toleranceLen:
-                if growthRate == 1:
-                    estimatedLength = endMeshSize * (nPnts + 1)
-                else:                
-                    estimatedLength = endMeshSize * (growthRate**(nPnts + 1) - 1)/(growthRate**(nPnts + 1) - growthRate**(nPnts))
-
-                if self.length < estimatedLength and direction != 1:
-                    exponent += 1
-                    direction = 1
-                elif self.length > estimatedLength and direction != -1:
-                    exponent += 1
-                    direction = -1
-                elif self.length == estimatedLength: break
-                
-                growthRate += direction*10**(-exponent)
-
-            self.startMeshSize = endMeshSize/growthRate**nPnts
-            self.endMeshSize = endMeshSize
-            self.nTransfinitePoints = nPnts
-
-        elif startMeshSize != None and nPnts != None:
-            # Estimator for progression factor:
-            estimatedLength = 0
-            growthRate = 1
-            toleranceLen = 0.001
-            direction = 0
-            exponent = 0
-            while math.fabs(self.length - estimatedLength) > self.length*toleranceLen:
-                if growthRate == 1:
-                    estimatedLength = startMeshSize * (nPnts + 1)
-                else:                
-                    estimatedLength = startMeshSize * (growthRate**(nPnts + 1) - 1)/(growthRate - 1)
-
-                if self.length > estimatedLength and direction != 1:
-                    exponent += 1
-                    direction = 1
-                elif self.length < estimatedLength and direction != -1:
-                    exponent += 1
-                    direction = -1
-                elif self.length == estimatedLength: break
-                
-                growthRate += direction*10**(-exponent)
-
-            self.startMeshSize = startMeshSize
-            self.endMeshSize = startMeshSize*growthRate**nPnts
-            self.nTransfinitePoints = nPnts
-
-        gmsh.model.mesh.setTransfiniteCurve(self.tag, self.nTransfinitePoints, meshType, growthRate)
-
-    @staticmethod
-    def get(points):
-        # print(f"Points to search: {points[0].tag}, {points[-1].tag}")
-        for spline in Spline.instances:
-            # print(f"Spline {spline.tag}: {spline.points[0].tag}, {spline.points[-1].tag}")
-            if spline.points == points:
-                return spline
-        return None
-
-
-class AirfoilSpline(Spline):
-    def __init__(self, points, side):
-        super().__init__(points)    
-
-        self.offsetSpline = None
-        self.side = side
-        self.controlSplines = None
-        self.bc = None
-
-
-class ExtensionSpline(Spline):
-    def __init__(self, points):
-        super().__init__(points)    
-
-        self.offsetSplines = None
-        self.controlSplines = None
+        self.bc = BoundaryCondition(self.dim, "farfield", [self.tag])
 
 
 class SplineInterpolation:
@@ -528,7 +95,6 @@ class SplineInterpolation:
 
         return interpolationPoints
 
-
 class CurveLoop:
     """
     A class to represent the CurveLoop geometrical object of gmsh
@@ -553,203 +119,6 @@ class CurveLoop:
         # create the gmsh object and store the tag of the geometric object
         self.tag = gmsh.model.occ.addCurveLoop(self.tag_list)
 
-
-class Circle:
-    """
-    A class to represent a Circle geometrical object, composed of many arcCircle object of gmsh
-
-    ...
-
-    Attributes
-    ----------
-    xc : float
-        position of the center in x
-    yc : float
-        position of the center in y
-    z : float
-        position in z
-    radius : float
-        radius of the circle
-    mesh_size : float
-        determine the mesh resolution and how many segment the
-        resulting circle will be composed of
-    """
-
-    def __init__(self, xc, yc, zc, radius, mesh_size):
-        # Position of the disk center
-        self.xc = xc
-        self.yc = yc
-        self.zc = zc
-
-        self.radius = radius
-        self.mesh_size = mesh_size
-        self.dim = 1
-
-        self.distribution = math.floor((np.pi * 2 * self.radius) / self.mesh_size)
-
-        self.tag = gmsh.model.occ.addCircle(self.xc, self.yc, self.zc, self.radius)
-
-        # Set mesh resolution
-        gmsh.model.occ.synchronize()
-        gmsh.model.mesh.setTransfiniteCurve(self.tag, self.distribution)
-
-    def close_loop(self):
-        """
-        Method to form a close loop with the current geometrical object
-
-        Returns
-        -------
-        _ : int
-            return the tag of the CurveLoop object
-        """
-        return gmsh.model.occ.addCurveLoop([self.tag])
-
-    def define_bc(self):
-        """
-        Method that define the marker of the circle
-        for the boundary condition
-        -------
-        """
-
-        self.bc = BoundaryCondition(self.dim, "farfield", [self.tag])
-
-    def rotation(self, angle, origin, axis):
-        """
-        Methode to rotate the object Circle
-        ...
-
-        Parameters
-        ----------
-        angle : float
-            angle of rotation in rad
-        origin : tuple
-            tuple of point (x,y,z) which is the origin of the rotation
-        axis : tuple
-            tuple of point (x,y,z) which represent the axis of rotation
-        """
-        gmsh.model.occ.rotate([(self.dim, self.dim)], *origin, *axis, angle)
-        
-
-    def translation(self, vector):
-        """
-        Methode to translate the object Circle
-        ...
-
-        Parameters
-        ----------
-        direction : tuple
-            tuple of point (x,y,z) which represent the direction of the translation
-        """
-
-        gmsh.model.occ.translate([(self.dim, self.tag)], *vector)
-
-
-class Rectangle:
-    """
-    A class to represent a rectangle geometrical object, composed of 4 Lines object of gmsh
-
-    ...
-
-    Attributes
-    ----------
-    xc : float
-        position of the center in x
-    yc : float
-        position of the center in y
-    z : float
-        position in z
-    dx: float
-        length of the rectangle along the x direction
-    dy: float
-        length of the rectangle along the y direction
-    mesh_size : float
-        attribute given for the class Point
-    """
-
-    def __init__(self, xc, yc, z, dx, dy, mesh_size):
-
-        self.xc = xc
-        self.yc = yc
-        self.z = z
-
-        self.dx = dx
-        self.dy = dy
-
-        self.mesh_size = mesh_size
-        self.dim = 1
-
-        # Generate the 4 corners of the rectangle
-        self.points = [
-            Point(self.xc - self.dx / 2, self.yc - self.dy / 2, z, self.mesh_size),
-            Point(self.xc + self.dx / 2, self.yc - self.dy / 2, z, self.mesh_size),
-            Point(self.xc + self.dx / 2, self.yc + self.dy / 2, z, self.mesh_size),
-            Point(self.xc - self.dx / 2, self.yc + self.dy / 2, z, self.mesh_size),
-        ]
-
-        # Generate the 4 lines of the rectangle
-        self.lines = [
-            Line(self.points[0], self.points[1]),
-            Line(self.points[1], self.points[2]),
-            Line(self.points[2], self.points[3]),
-            Line(self.points[3], self.points[0]),
-        ]
-
-    def close_loop(self):
-        """
-        Method to form a close loop with the current geometrical object
-
-        Returns
-        -------
-        _ : int
-            return the tag of the CurveLoop object
-        """
-        return CurveLoop(self.lines).tag
-
-    def define_bc(self):
-        """
-        Method that define the different markers of the rectangle for the boundary condition
-        self.lines[0] => wall_bot
-        self.lines[1] => outlet
-        self.lines[2] => wall_top
-        self.lines[3] => inlet
-        -------
-        """
-
-        self.bc_in = BoundaryCondition(self.dim, "inlet", [self.lines[3].tag])
-        self.bc_out = BoundaryCondition(self.dim, "outlet", [self.lines[1].tag])
-        self.bc_wall = BoundaryCondition(self.dim, "wall", [self.lines[0].tag, self.lines[2].tag])
-
-        self.bcs = [self.bc_in, self.bc_out, self.bc_wall]
-
-    def rotation(self, angle, origin, axis):
-        """
-        Methode to rotate the object Rectangle
-        ...
-
-        Parameters
-        ----------
-        angle : float
-            angle of rotation in rad
-        origin : tuple
-            tuple of point (x,y,z) which is the origin of the rotation
-        axis : tuple
-            tuple of point (x,y,z) which represent the axis of rotation
-        """
-        [line.rotation(angle, origin, axis) for line in self.lines]
-
-    def translation(self, vector):
-        """
-        Methode to translate the object Rectangle
-        ...
-
-        Parameters
-        ----------
-        direction : tuple
-            tuple of point (x,y,z) which represent the direction of the translation
-        """
-        [line.translation(vector) for line in self.lines]
-
-
 class Airfoil:
     """
     A class to represent and airfoil as a CurveLoop object formed with Splines
@@ -770,16 +139,15 @@ class Airfoil:
         boundary condition
     """
 
-    def __init__(self, point_cloud, mesh_size, bcs):
+    def __init__(self, point_cloud, bcs):
         
         self.dim = 1
         self.bcs = bcs
         self.refinementLengthLE = 0.2
-        self.meshSize = mesh_size
 
         # Generate Points object from the point_cloud
         self.points = [
-            Point(point_cord[0], point_cord[1], point_cord[2], mesh_size)
+            Point(point_cord[0], point_cord[1], point_cord[2])
             for point_cord in point_cloud
         ]
 
@@ -943,10 +311,10 @@ class Airfoil:
     def setBoundaryLayer(self, *args):
         f = gmsh.model.mesh.field.add('BoundaryLayer')
         gmsh.model.mesh.field.setNumbers(f, 'CurvesList', [spline.tag for spline in self.splines])
-        gmsh.model.mesh.field.setNumber(f, 'Size', args[1])
-        gmsh.model.mesh.field.setNumber(f, 'Ratio', args[2])
+        gmsh.model.mesh.field.setNumber(f, 'Size', args[0])
+        gmsh.model.mesh.field.setNumber(f, 'Ratio', args[1])
         gmsh.model.mesh.field.setNumber(f, 'Quads', 1)
-        gmsh.model.mesh.field.setNumber(f, 'Thickness', args[3])
+        gmsh.model.mesh.field.setNumber(f, 'Thickness', args[2])
         gmsh.option.setNumber('Mesh.BoundaryLayerFanElements', 7)
         gmsh.model.mesh.field.setNumbers(f, 'FanPointsList', [self.pointTE.tag])
         gmsh.model.mesh.field.setAsBoundaryLayer(f)
@@ -1041,9 +409,7 @@ class Airfoil:
 
             spline.offsetSpline = Spline(points)
             
-            self.offsetSplines.append(spline.offsetSpline)
-            if not any(spline.tag is None for spline in self.splines):
-                spline.offsetSpline.generate()
+            self.offsetSplines.append(spline.offsetSpline)                
 
         for spline in self.splines:
             print(f"First Point: {spline.points[0].tag} / Last Point: {spline.points[-1].tag}")
@@ -1072,8 +438,6 @@ class Airfoil:
 
         extensionSpline = ExtensionSpline(interpolationPoints)
         self.extensionSplines.append(extensionSpline)
-        if not any(spline.tag is None for spline in self.splines):
-            extensionSpline.generate()
             
         # Build point set for upper extension line:
         startPoint = endPoint
@@ -1081,14 +445,16 @@ class Airfoil:
 
         extensionSpline = ExtensionSpline([startPoint, endPoint])
         self.extensionSplines.append(extensionSpline)
-        if not any(spline.tag is None for spline in self.splines):
-            extensionSpline.generate()
 
     def generate(self):
+        for point in self.points:
+            point.generate()
         for spline in self.splines:
-            spline.generate()
+            spline.generate()                
 
-    def setTransfinite(self):
+    def setTransfinite(self, meshSize):
+        self.meshSize = meshSize
+        
         refinementSize = 1/4*self.meshSize
         for spline in self.splines:
             if self.pointLE in spline.points and self.refinementLengthLE != None:
@@ -1098,15 +464,21 @@ class Airfoil:
 
         if self.extensionSplines:
             self.extensionSplines[0].setTransfinite(startMeshSize = self.meshSize, endMeshSize = self.meshSize)
-            self.extensionSplines[1].setTransfinite(startMeshSize = self.extensionSplines[0].endMeshSize, endMeshSize = 20*self.extensionSplines[1].length*self.extensionSplines[0].endMeshSize)
+            self.extensionSplines[1].setTransfinite(startMeshSize = self.extensionSplines[0].endMeshSize, endMeshSize = self.extensionSplines[1].length/10*2)
 
 class AirfoilStructuredRegion:
     def __init__(self, airfoil, offsetValue, extensionLength, transitionLength, conicalWakeAngle):
         airfoil.offset(offsetValue)
         airfoil.extendTE(extensionLength, transitionLength)
+        for spline in airfoil.splines:
+            spline.offsetSpline.generate()
+        for spline in airfoil.extensionSplines:
+            spline.generate()
+            
+        gmsh.model.occ.synchronize()
+        gmsh.fltk.run()
         self.offsetValue = airfoil.offsetValue
         self.airfoil = airfoil
-        self.meshSize = airfoil.meshSize
 
         self.points = []
         self.splines = []
@@ -1115,7 +487,7 @@ class AirfoilStructuredRegion:
         self.planeSurfaces = []
         
         self.createWakeRegion(conicalWakeAngle)
-        self.createPlaneSurfaces()        
+        self.createPlaneSurfaces()
 
         self.upper_connection_lines = []
         self.lower_connection_lines = []
@@ -1244,8 +616,8 @@ class AirfoilStructuredRegion:
                 else:
                     controlSpline.setTransfinite(startMeshSize=deltaYWall, growthRate=growthRate)
 
-        self.airfoil.extensionSplines[-1].controlSplines[-1].setTransfinite(nPnts = self.airfoil.extensionSplines[-1].controlSplines[-2].nTransfinitePoints, growthRate = 1)
-        self.airfoil.extensionSplines[-1].controlSplines[-3].setTransfinite(nPnts = self.airfoil.extensionSplines[-1].controlSplines[-4].nTransfinitePoints, growthRate = 1)
+        self.airfoil.extensionSplines[-1].controlSplines[-1].setTransfinite(nPnts = self.airfoil.extensionSplines[-1].controlSplines[-2].nTransfinitePoints, growthRate = self.airfoil.extensionSplines[-1].controlSplines[-2].growthRate)
+        self.airfoil.extensionSplines[-1].controlSplines[-3].setTransfinite(nPnts = self.airfoil.extensionSplines[-1].controlSplines[-4].nTransfinitePoints, growthRate = self.airfoil.extensionSplines[-1].controlSplines[-2].growthRate)
 
         # Calculate the tangential mesh distribution
         if self.airfoil.refinementLengthLE != None:
@@ -1336,7 +708,6 @@ class PlaneSurface:
         
         self.bc = BoundaryCondition(self.dim, bc_name, bc_entities)
 
-
 class MeshExtrusion:
     """
     A class to represent the PlaneSurface geometrical object of gmsh
@@ -1405,14 +776,12 @@ class MeshExtrusion:
         for bc in BoundaryCondition.instances:
             print(f"{bc.name}, dim = {bc.dim}, tags = {bc.tag_list}")
 
-
 class AirfoilBoundaryCondition():
     def __init__(self, name, start, end, side):
         self.name = name
         self.start = start
         self.end = end
         self.side = side
-
 
 class BoundaryCondition(metaclass=InstanceTracker):
     def __init__(self, dim, name, tag_list):

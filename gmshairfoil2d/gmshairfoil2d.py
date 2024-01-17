@@ -11,8 +11,13 @@ import numpy as np
 import gmsh
 from gmshairfoil2d.airfoil_func import (NACA_4_digit_geom, get_airfoil_points,
                                         get_all_available_airfoil_names)
-from gmshairfoil2d.geometry_def import (Airfoil, Circle, PlaneSurface, AirfoilBoundaryCondition,
-                                        Rectangle, MeshExtrusion, BoundaryCondition, AirfoilStructuredRegion)
+from gmshairfoil2d.domains import SurfaceDomain
+from gmshairfoil2d.geometry_def import (Airfoil, PlaneSurface, AirfoilBoundaryCondition,
+                                        MeshExtrusion, BoundaryCondition, AirfoilStructuredRegion)
+from gmshairfoil2d.basicGoemetry import (Point, Line, Spline, AirfoilSpline, 
+                                         ExtensionSpline, Circle, CircleArc,
+                                         Rectangle)
+
 
 def main():
     # Instantiate the parser
@@ -272,7 +277,7 @@ def main():
 
 
     # Airfoil
-    airfoil = Airfoil(cloud_points, airfoil_mesh_size, airfoilBCs)
+    airfoil = Airfoil(cloud_points, airfoilBCs)
     airfoil.rotation(aoa, (0.5, 0, 0), (0, 0, 1))
     airfoil.generate()
     if args.blayer:
@@ -283,14 +288,18 @@ def main():
         length, width = [float(value) for value in args.box.split("x")]
         ext_domain = Rectangle(0.5, 0, 0, length, width, mesh_size=extMeshSize)
     else:
-        ext_domain = Circle(0.5, 0, 0, radius=args.farfield, mesh_size=extMeshSize)
+        ext_domain = Circle(0.5, 0, 0, args.farfield)
+        ext_domain.generate()       
+        
+    surfDomain = SurfaceDomain(airfoil, ext_domain, struct=2)
+    surfDomain.createStruct(0.3, 10, 1, 10)
     
     offsetTrigger = True
     surface_domain = None
     offset = None
     # Generate domain
     if offsetTrigger:
-        offset = AirfoilStructuredRegion(airfoil, 0.05, 10, 0.1, 20)
+        offset = AirfoilStructuredRegion(airfoil, 0.05, 25, 0.1, 20)
         for planeSurface in offset.planeSurfaces:
             planeSurface.define_bc()
 
@@ -314,7 +323,7 @@ def main():
         meshOrder = 1
 
     # Mesh settings
-    airfoil.setTransfinite()
+    airfoil.setTransfinite(airfoil_mesh_size)
     if offsetTrigger:
         offset.setTransfinite(blayer_size, blayer_thickness, meshOrder)
     
