@@ -181,6 +181,14 @@ def main():
         nargs="?",
         help="Add a refinement in the LE area and match the airfoil mesh size at [length]",
     )
+    
+    parser.add_argument(
+        "--highOrderOptimize",
+        type=int,
+        metavar="ALGO",
+        nargs="?",
+        help="Add a refinement in the LE area and match the airfoil mesh size at [length]",
+    )
 
     args = parser.parse_args()
 
@@ -308,8 +316,9 @@ def main():
     if args.high_order:
         meshOrder = args.high_order
         print(f"Polynomial degree: {meshOrder}")
-        gmsh.option.setNumber("Mesh.ElementOrder", meshOrder)    
-        # gmsh.option.setNumber("Mesh.HighOrderOptimize", 1)
+        gmsh.option.setNumber("Mesh.ElementOrder", meshOrder) 
+        if args.highOrderOptimize:   
+            gmsh.option.setNumber("Mesh.HighOrderOptimize", args.highOrderOptimize)
     else:
         meshOrder = 1
 
