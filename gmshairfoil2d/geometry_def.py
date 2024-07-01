@@ -373,7 +373,7 @@ class Spline(metaclass=InstanceTracker):
 
         elif nPnts != None and growthRate != None:
             if growthRate == 1:
-                self.startMeshSize = self.length / (nPnts + 1)
+                self.startMeshSize = self.length / (nPnts - 1)
             else:
                 self.startMeshSize = self.length * (growthRate - 1)/(growthRate**(nPnts + 1) - 1)
             self.endMeshSize = self.startMeshSize * growthRate**(nPnts)
@@ -437,6 +437,8 @@ class Spline(metaclass=InstanceTracker):
             self.startMeshSize = startMeshSize
             self.endMeshSize = startMeshSize*growthRate**nPnts
             self.nTransfinitePoints = nPnts
+
+        print(f"Transfinite: {self.tag,self.nTransfinitePoints,growthRate,self.startMeshSize,self.endMeshSize,self.length}")
 
         gmsh.model.mesh.setTransfiniteCurve(self.tag, self.nTransfinitePoints, meshType, growthRate)
 
@@ -1259,8 +1261,10 @@ class AirfoilStructuredRegion:
                         nextSpline = self.airfoil.splines[idxAirfoilSpline + 1]
                     elif airfoilSpline.side == "PS":
                         nextSpline = self.airfoil.splines[idxAirfoilSpline - 1]
+
+                    print(f"Next Spline: {nextSpline.offsetSpline.tag} -> {nextSpline.offsetSpline.startMeshSize}")
                     
-                    airfoilSpline.offsetSpline.setTransfinite(endMeshSize = nextSpline.offsetSpline.endMeshSize, nPnts = airfoilSpline.nTransfinitePoints)
+                    airfoilSpline.offsetSpline.setTransfinite(endMeshSize = nextSpline.offsetSpline.startMeshSize, nPnts = airfoilSpline.nTransfinitePoints)
         else:
             for airfoilSpline in self.airfoil.splines:
                 airfoilSpline.offsetSpline.setTransfinite(growthRate = 1, nPnts = airfoilSpline.nTransfinitePoints)
