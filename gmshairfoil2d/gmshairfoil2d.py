@@ -270,7 +270,7 @@ def main():
         airfoil_mesh_size = 2*airfoil_mesh_size
         extMeshSize = 2*extMeshSize
         blayer_size = 2*blayer_size
-        gmsh.option.setNumber("Mesh.Algorithm", 8)
+        gmsh.option.setNumber("Mesh.Algorithm", 5)
         gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1) 
         gmsh.option.setNumber("Mesh.RecombineAll", 1)
         if args.extrusion:
