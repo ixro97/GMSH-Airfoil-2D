@@ -128,6 +128,13 @@ def main():
         default="su2",
         help="format of the mesh file, e.g: msh, vtk, wrl, stl, mesh, cgns, su2, dat (default su2)",
     )
+    
+    parser.add_argument(
+        "--name",
+        type=str,
+        nargs="?",
+        help="format of the mesh file, e.g: msh, vtk, wrl, stl, mesh, cgns, su2, dat (default su2)",
+    )
 
     parser.add_argument(
         "--output",
@@ -215,6 +222,11 @@ def main():
         print("You must use --naca or --airfoil\n")
         parser.print_help()
         sys.exit()
+        
+    if args.name:
+        fileName = args.name
+    else:
+        fileName = f"mesh_airfoil_{airfoil_name}"
 
     blayer = False
     blayer_ratio = 5e-5
@@ -301,7 +313,6 @@ def main():
         offset = AirfoilStructuredRegion(airfoil, 0.05, 10, 0.1, 20)
         for planeSurface in offset.planeSurfaces:
             planeSurface.define_bc()
-
         surface_domain = PlaneSurface([ext_domain, offset])
     else:
         surface_domain = PlaneSurface([ext_domain, airfoil])
@@ -364,7 +375,7 @@ def main():
         gmsh.fltk.run()
 
     # Mesh file name and output
-    mesh_path = Path(args.output, f"mesh_airfoil_{airfoil_name}.{args.format}")
+    mesh_path = Path(args.output, f"{fileName}.{args.format}")
     gmsh.write(str(mesh_path))
     gmsh.finalize()
 
