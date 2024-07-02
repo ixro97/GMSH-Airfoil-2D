@@ -777,6 +777,7 @@ class Airfoil:
         self.dim = 1
         self.bcs = bcs
         self.refinementLengthLE = 0.2
+        self.refinementShock = [0.2,0.6]
         self.meshSize = mesh_size
 
         # Generate Points object from the point_cloud
@@ -857,13 +858,22 @@ class Airfoil:
                 splittingPoints.insert(0, ssPoint)
             if psPoint not in splittingPoints:
                 splittingPoints.append(psPoint)
+                
+        if self.refinementShock != None:
+            self.refinementShock[0] = self.addBoundaryPoint(self.refinementShock[0], "SS")
+            self.refinementShock[1] = self.addBoundaryPoint(self.refinementShock[1], "SS")
+
+            if self.refinementShock[0] not in splittingPoints:
+                splittingPoints.insert(0,self.refinementShock[0])
+            if self.refinementShock[1] not in splittingPoints:
+                splittingPoints.insert(0,self.refinementShock[1])
 
         idxTE = splittingPoints.index(self.pointTE)
         splittingPoints[0:idxTE + 1] = sorted(splittingPoints[0:idxTE + 1], key=lambda obj: obj.x)
         splittingPoints[idxTE:] = sorted(splittingPoints[idxTE:], key=lambda obj: -obj.x)
 
         for point in splittingPoints:
-            print(self.points.index(point))
+            print(point.x,self.points.index(point))
 
         for idxPoint, point in enumerate(splittingPoints):
             startPoint = point
@@ -902,7 +912,7 @@ class Airfoil:
         airfoilBC = AirfoilBoundaryCondition("airfoil", None, None, None)
         for spline in self.splines:
             for bc in self.bcs:
-                if spline.points[0].x == bc.start and spline.points[-1].x == bc.end:
+                if spline.side==bc.side and (spline.points[0].x >= bc.start and spline.points[-1].x <= bc.end):
                     print(f"{spline.points[0].x} == {bc.start} and {spline.points[-1].x} == {bc.end}")
                     spline.bc = bc
                     break
@@ -987,6 +997,8 @@ class Airfoil:
         self.offsetValue = offsetValue
         self.offsetPoints = []
         self.offsetSplines = []
+        self.shockPoints = []
+        self.shockSplines = []
 
         vector_z = np.array([0,0,1])
         
@@ -1024,7 +1036,15 @@ class Airfoil:
                 vector_offsetPoint = np.array([point.x, point.y, point.z]) + offsetValue*vector_normal
                 offsetPoint = Point(vector_offsetPoint[0], vector_offsetPoint[1], 0)
                 self.offsetPoints.append(offsetPoint)
-
+                
+            if self.refinementShock[0].x <= point.x and point.x <= self.refinementShock[1].x and point.y > 0:
+                print(point.x)
+                vector_offsetPoint = np.array([point.x, point.y, point.z]) + 0.4*vector_normal
+                offsetPoint = Point(vector_offsetPoint[0], vector_offsetPoint[1], 0)
+                self.shockPoints.append(offsetPoint)
+            else:
+                self.shockPoints.append(None)
+                
         idxEndPoint = self.points.index(self.pointLE)
         for idxSpline, spline in enumerate(self.splines):
             if self.pointTE in spline.points and spline.side == "PS":
@@ -1035,8 +1055,10 @@ class Airfoil:
         
             if idxSpline == len(self.splines) - 1:
                 points = self.offsetPoints[idxStartPoint:idxEndPoint + 1] + [self.offsetPoints[self.points.index(self.pointLE)]]
+                points2 = self.shockPoints[idxStartPoint:idxEndPoint + 1] + [self.offsetPoints[self.points.index(self.pointLE)]]
             else:
                 points = self.offsetPoints[idxStartPoint:idxEndPoint + 1]
+                points2 = self.shockPoints[idxStartPoint:idxEndPoint + 1]
 
             if spline.side == "PS":
                 points.reverse()
@@ -1045,12 +1067,25 @@ class Airfoil:
             
             self.offsetSplines.append(spline.offsetSpline)
             if not any(spline.tag is None for spline in self.splines):
-                spline.offsetSpline.generate()
-
+                spline.offsetSpline.generate()        
+                
+            if any(element is None for element in points2):
+                self.shockSplines.append(None)
+            else:
+                shockSpline = Spline(points2)
+                self.shockSplines.append(shockSpline)
+            
+                if not any(spline.tag is None for spline in self.splines):
+                    shockSpline.generate()
+            
         for spline in self.splines:
             print(f"First Point: {spline.points[0].tag} / Last Point: {spline.points[-1].tag}")
         for spline in self.offsetSplines:
             print(f"First Point: {spline.points[0].tag} / Last Point: {spline.points[-1].tag}")
+        for spline in self.shockSplines:
+            print(spline)
+            if spline is not None:
+                print(f"First Point: {spline.points[0].tag} / Last Point: {spline.points[-1].tag}")
 
     def extendTE(self, extensionLength, transitionLength, extension_offset = None):
         self.extensionSplines = []
@@ -1174,6 +1209,26 @@ class AirfoilStructuredRegion:
             
             curveList = [spline, spline.controlSplines[0], offsetSpline, spline.controlSplines[1]]
             self.planeSurfaces.append(PlaneSurface([CurveLoop(curveList)]))
+            
+        for idx, shockSpline in enumerate(self.airfoil.shockSplines):
+            if shockSpline is not None:
+                shockSpline.controlSplines = []
+                offsetSpline = self.airfoil.splines[idx].offsetSpline
+                
+                firstControlSpline = Spline.get([offsetSpline.points[0], shockSpline.points[0]])
+                if not firstControlSpline:
+                    firstControlSpline = Spline([offsetSpline.points[0], shockSpline.points[0]])
+                    firstControlSpline.generate()
+                shockSpline.controlSplines.append(firstControlSpline)
+                
+                lastControlSpline = Spline.get([offsetSpline.points[-1], shockSpline.points[-1]])
+                if not lastControlSpline:
+                    lastControlSpline = Spline([offsetSpline.points[-1], shockSpline.points[-1]])
+                    lastControlSpline.generate()
+                shockSpline.controlSplines.append(lastControlSpline)
+                
+                curveList = [offsetSpline, shockSpline.controlSplines[0], shockSpline, shockSpline.controlSplines[1]]
+                self.planeSurfaces.append(PlaneSurface([CurveLoop(curveList)]))
 
         for spline in self.airfoil.extensionSplines:
             spline.controlSplines = []
@@ -1206,7 +1261,19 @@ class AirfoilStructuredRegion:
         """                           
         outer_loop_curve_list = []
         list = []
-        for airfoilSpline in self.airfoil.splines:
+        for idx, airfoilSpline in enumerate(self.airfoil.splines):
+            if idx > 0 and idx < len(self.airfoil.splines) - 1:
+                shockSpline = self.airfoil.shockSplines[idx]
+                shockSplineLast = self.airfoil.shockSplines[idx-1]
+                shockSplineNext = self.airfoil.shockSplines[idx+1]
+                
+                if shockSpline is not None:
+                    if shockSplineLast is None:
+                        list.append(shockSpline.controlSplines[0])
+                    list.append(shockSpline)
+                    if shockSplineNext is None:
+                        list.append(shockSpline.controlSplines[1])               
+                    continue
             if airfoilSpline.side == "SS":
                 list.append(airfoilSpline.offsetSpline)
         outer_loop_curve_list.extend(list)
@@ -1282,6 +1349,14 @@ class AirfoilStructuredRegion:
         for idxOffsetSpline, offsetSpline in enumerate(self.airfoil.extensionSplines[-1].offsetSplines):
             lastSpline = self.airfoil.extensionSplines[0]
             offsetSpline.setTransfinite(startMeshSize = self.airfoil.extensionSplines[-1].startMeshSize, nPnts = self.airfoil.extensionSplines[-1].nTransfinitePoints)
+            
+        for idx, shockSpline in enumerate(self.airfoil.shockSplines):
+            if shockSpline is not None:
+                airfoilSpline = self.airfoil.splines[idx]
+                
+                shockSpline.setTransfinite(growthRate = 1, nPnts = airfoilSpline.nTransfinitePoints)
+                shockSpline.controlSplines[0].setTransfinite(growthRate=1.08,startMeshSize=airfoilSpline.controlSplines[0].endMeshSize)
+                shockSpline.controlSplines[1].setTransfinite(growthRate=1.08,startMeshSize=airfoilSpline.controlSplines[1].endMeshSize)
 
         # Set and recombine transfinite surfaces
         for surface in self.planeSurfaces:
