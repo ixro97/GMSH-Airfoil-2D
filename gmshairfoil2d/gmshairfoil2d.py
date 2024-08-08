@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import csv
 import math
 import sys
 import re
@@ -11,7 +12,7 @@ import numpy as np
 import gmsh
 from gmshairfoil2d.airfoil_func import (NACA_4_digit_geom, get_airfoil_points,
                                         get_all_available_airfoil_names)
-from gmshairfoil2d.geometry_def import (Airfoil, Circle, PlaneSurface, AirfoilBoundaryCondition,
+from gmshairfoil2d.geometry_def import (Airfoil, Circle, PlaneSurface, AirfoilBoundaryCondition, Point,
                                         Rectangle, MeshExtrusion, BoundaryCondition, AirfoilStructuredRegion)
 
 def main():
@@ -303,7 +304,9 @@ def main():
         length, width = [float(value) for value in args.box.split("x")]
         ext_domain = Rectangle(0.5, 0, 0, length, width, mesh_size=extMeshSize)
     else:
-        ext_domain = Circle(0.5, 0, 0, radius=args.farfield, mesh_size=extMeshSize)
+        ext_domain = Circle(0.5, 0, 0, radius=args.farfield)
+    ext_domain.outflow(40,320) # outflow BC
+    ext_domain.generate()
     
     offsetTrigger = True
     surface_domain = None
@@ -335,6 +338,7 @@ def main():
 
     # Mesh settings
     airfoil.setTransfinite()
+    ext_domain.setTransfinite(extMeshSize)
     if offsetTrigger:
         offset.setTransfinite(blayer_size, blayer_thickness, meshOrder)
     

@@ -555,6 +555,18 @@ class CurveLoop:
         # create the gmsh object and store the tag of the geometric object
         self.tag = gmsh.model.occ.addCurveLoop(self.tag_list)
 
+class CircleArc:
+    def __init__(self,xc, yc, zc, radius, angle1, angle2):
+        self.xc = xc
+        self.yc = yc
+        self.zc = zc
+        
+        self.radius = radius
+        self.angle1 = angle1
+        self.angle2 = angle2
+        
+        self.dim = 1
+        self.tagList = None      
 
 class Circle:
     """
@@ -577,24 +589,34 @@ class Circle:
         resulting circle will be composed of
     """
 
-    def __init__(self, xc, yc, zc, radius, mesh_size):
+    def __init__(self, xc, yc, zc, radius):
         # Position of the disk center
         self.xc = xc
         self.yc = yc
         self.zc = zc
-
         self.radius = radius
-        self.mesh_size = mesh_size
-        self.dim = 1
 
-        self.distribution = math.floor((np.pi * 2 * self.radius) / self.mesh_size)
+        self.arcList = [CircleArc(xc, yc, zc, radius, 0, 360)]
 
-        self.tag = gmsh.model.occ.addCircle(self.xc, self.yc, self.zc, self.radius)
-
-        # Set mesh resolution
-        gmsh.model.occ.synchronize()
-        gmsh.model.mesh.setTransfiniteCurve(self.tag, self.distribution)
-
+    def outflow(self, angle1, angle2):
+        self.arcList[0].angle1 = angle1
+        self.arcList[0].angle2 = angle2
+        
+        self.arcList.append(CircleArc(self.xc, self.yc, self.zc, self.radius, angle2, angle1))
+        
+    def generate(self):
+        for idx, arc in enumerate(self.arcList):
+            angle1 = arc.angle1 * (math.pi / 180)
+            angle2 = arc.angle2 * (math.pi / 180)
+            if idx == 0:
+                arc.tag = gmsh.model.occ.addCircle(self.xc, self.yc, self.zc, self.radius,angle1=angle1, angle2=angle2)
+                gmsh.model.occ.synchronize()
+                startTag = gmsh.model.getBoundary([(arc.dim,arc.tag)])[1][1]
+                endTag   = gmsh.model.getBoundary([(arc.dim,arc.tag)])[0][1]
+            elif idx == 1:
+                center = Point(self.xc,self.yc,self.zc)
+                arc.tag = gmsh.model.occ.addCircleArc(startTag, center.tag, endTag)
+                
     def close_loop(self):
         """
         Method to form a close loop with the current geometrical object
@@ -604,7 +626,7 @@ class Circle:
         _ : int
             return the tag of the CurveLoop object
         """
-        return gmsh.model.occ.addCurveLoop([self.tag])
+        return gmsh.model.occ.addCurveLoop([arc.tag for arc in self.arcList])
 
     def define_bc(self):
         """
@@ -612,9 +634,12 @@ class Circle:
         for the boundary condition
         -------
         """
-
-        self.bc = BoundaryCondition(self.dim, "farfield", [self.tag])
-
+        for idx, arc in enumerate(self.arcList):
+            if idx == 0:
+                arc.bc = BoundaryCondition(arc.dim, "farfield", [arc.tag])
+            elif idx == 1:
+                arc.bc = BoundaryCondition(arc.dim, "outflow", [arc.tag])
+        
     def rotation(self, angle, origin, axis):
         """
         Methode to rotate the object Circle
@@ -630,7 +655,6 @@ class Circle:
             tuple of point (x,y,z) which represent the axis of rotation
         """
         gmsh.model.occ.rotate([(self.dim, self.dim)], *origin, *axis, angle)
-        
 
     def translation(self, vector):
         """
@@ -645,6 +669,14 @@ class Circle:
 
         gmsh.model.occ.translate([(self.dim, self.tag)], *vector)
 
+    def setTransfinite(self,meshSize):
+        for idx, arc in enumerate(self.arcList):
+            deltaAngle = (arc.angle2 - arc.angle1) * (math.pi / 180)
+            if deltaAngle < 0:
+                deltaAngle = deltaAngle + 2*math.pi
+            print(deltaAngle)
+            distribution = math.ceil(( deltaAngle * arc.radius) / meshSize)
+            gmsh.model.mesh.setTransfiniteCurve(arc.tag, distribution)
 
 class Rectangle:
     """
